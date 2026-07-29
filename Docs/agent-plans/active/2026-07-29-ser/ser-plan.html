@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SwiftSER — SER File Parser Implementation Plan</title>
+<style>
+:root
+{
+    --bg:          #14161a;
+    --bg-alt:      #1b1e24;
+    --bg-code:     #0f1114;
+    --fg:          #d7dae0;
+    --fg-dim:      #9aa1ad;
+    --fg-bright:   #f2f4f7;
+    --accent:      #6db3f2;
+    --border:      #2c313a;
+    --green:       #2e7d43;
+    --green-fg:    #d6f5e0;
+    --amber:       #9a6b12;
+    --amber-fg:    #ffeec2;
+    --gray:        #3a4048;
+    --gray-fg:     #c3c9d3;
+}
+
+*
+{
+    box-sizing: border-box;
+}
+
+body
+{
+    margin:           0;
+    padding:          2.5rem 1.5rem 5rem;
+    background:       var(--bg);
+    color:            var(--fg);
+    font-family:      -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size:        16px;
+    line-height:      1.65;
+    -webkit-font-smoothing: antialiased;
+}
+
+.wrap
+{
+    max-width: 60rem;
+    margin:    0 auto;
+}
+
+h1
+{
+    font-size:      2rem;
+    line-height:    1.25;
+    margin:         0 0 1.25rem;
+    color:          var(--fg-bright);
+    border-bottom:  2px solid var(--border);
+    padding-bottom: 0.75rem;
+}
+
+h2
+{
+    font-size:      1.4rem;
+    margin:         3rem 0 1rem;
+    color:          var(--fg-bright);
+    border-bottom:  1px solid var(--border);
+    padding-bottom: 0.4rem;
+}
+
+h3
+{
+    font-size: 1.15rem;
+    margin:    2.25rem 0 0.75rem;
+    color:     var(--fg-bright);
+}
+
+h4
+{
+    font-size:      0.85rem;
+    margin:         1.5rem 0 0.4rem;
+    color:          var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+a
+{
+    color:           var(--accent);
+    text-decoration: none;
+}
+
+a:hover
+{
+    text-decoration: underline;
+}
+
+code
+{
+    font-family:   ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:     0.875em;
+    background:    var(--bg-code);
+    border:        1px solid var(--border);
+    border-radius: 4px;
+    padding:       0.1em 0.35em;
+}
+
+pre
+{
+    background:    var(--bg-code);
+    border:        1px solid var(--border);
+    border-radius: 8px;
+    padding:       1rem;
+    overflow-x:    auto;
+}
+
+pre code
+{
+    background: none;
+    border:     none;
+    padding:    0;
+    font-size:  0.85rem;
+}
+
+table
+{
+    border-collapse: collapse;
+    width:           100%;
+    margin:          1rem 0;
+    font-size:       0.9rem;
+}
+
+th, td
+{
+    border:     1px solid var(--border);
+    padding:    0.5rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+th
+{
+    background: var(--bg-alt);
+    color:      var(--fg-bright);
+}
+
+.scroll
+{
+    overflow-x: auto;
+    max-width:  100%;
+}
+
+.meta
+{
+    background:    var(--bg-alt);
+    border:        1px solid var(--border);
+    border-radius: 8px;
+    padding:       1rem 1.25rem;
+    margin:        0 0 2rem;
+}
+
+.meta dl
+{
+    margin:                0;
+    display:               grid;
+    grid-template-columns: max-content 1fr;
+    gap:                   0.35rem 1rem;
+}
+
+.meta dt
+{
+    color:       var(--fg-dim);
+    font-weight: 600;
+}
+
+.meta dd
+{
+    margin: 0;
+}
+
+.status
+{
+    display:        inline-block;
+    padding:        0.15em 0.7em;
+    border-radius:  999px;
+    font-size:      0.75rem;
+    font-weight:    700;
+    letter-spacing: 0.03em;
+    white-space:    nowrap;
+    vertical-align: middle;
+}
+
+.status-notstarted
+{
+    background: var(--gray);
+    color:      var(--gray-fg);
+}
+
+.status-inprogress
+{
+    background: var(--amber);
+    color:      var(--amber-fg);
+}
+
+.status-completed
+{
+    background: var(--green);
+    color:      var(--green-fg);
+}
+
+.milestone
+{
+    background:    var(--bg-alt);
+    border:        1px solid var(--border);
+    border-radius: 10px;
+    padding:       1.25rem 1.5rem 1.5rem;
+    margin:        1.5rem 0;
+}
+
+.milestone h3
+{
+    margin-top: 0;
+}
+
+.milestone > h3 .status
+{
+    margin-left: 0.6rem;
+}
+
+.field
+{
+    margin: 0.75rem 0;
+}
+
+.field .label
+{
+    color:          var(--fg-dim);
+    font-size:      0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight:    700;
+}
+
+.placeholder
+{
+    color:      var(--fg-dim);
+    font-style: italic;
+}
+
+ul.toc
+{
+    list-style: none;
+    padding:    0;
+    margin:     0;
+}
+
+ul.toc > li
+{
+    margin: 0.4rem 0;
+}
+
+ul.toc .phase
+{
+    margin:         1.25rem 0 0.5rem;
+    color:          var(--fg-dim);
+    font-size:      0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight:    700;
+    list-style:     none;
+}
+
+.tasks
+{
+    list-style: none;
+    padding:    0;
+}
+
+.tasks li
+{
+    margin:       0.3rem 0;
+    padding-left: 1.6rem;
+    position:     relative;
+}
+
+.tasks li::before
+{
+    content:  "\2610";
+    position: absolute;
+    left:     0;
+    color:    var(--fg-dim);
+}
+
+.qa
+{
+    border-left:  3px solid var(--border);
+    padding-left: 1rem;
+    margin:       1.25rem 0;
+}
+
+.qa .q
+{
+    color:       var(--fg-bright);
+    font-weight: 600;
+}
+
+.qa .a
+{
+    margin-top: 0.3rem;
+}
+
+.note
+{
+    background:    #1d2530;
+    border:        1px solid #2f3f52;
+    border-left:   3px solid var(--accent);
+    border-radius: 6px;
+    padding:       0.75rem 1rem;
+    margin:        1rem 0;
+}
+
+hr
+{
+    border:     none;
+    border-top: 1px solid var(--border);
+    margin:     3rem 0;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>SwiftSER — SER File Parser Implementation Plan</h1>
+
+<div class="meta">
+<dl>
+    <dt>Generated</dt><dd>2026-07-29</dd>
+    <dt>Source</dt><dd><code>Docs/agent-plans/active/2026-07-29-ser/ser.md</code></dd>
+    <dt>Specifications</dt><dd><code>Documentation/SER Doc V3b.pdf</code> (v3, 2014-02-06), <code>Documentation/SER Doc V2.pdf</code> (v2)</dd>
+</dl>
+</div>
+
+<h2>Overview</h2>
+
+<p>
+Build <strong>SwiftSER</strong>, a read-only SER file parser in Swift. SER is a simple container used by
+planetary and solar astro-imaging capture software: a fixed 178-byte header, a run of raw uncompressed
+image frames, and an optional trailer of per-frame UTC timestamps. The library exposes the header
+metadata, per-frame timestamps, and random access to individual frames' pixel data — then, on Apple
+platforms, converts frames to <code>CGImage</code> and encodes whole sequences into playable QuickTime
+movies.
+</p>
+
+<p>
+The architecture, naming, file organization, documentation style and test approach follow the
+<a href="https://github.com/macmade/SwiftFITS">SwiftFITS</a> project as closely as the format allows: a
+top-level file type owning parsed sub-objects, an <code>OptionSet</code> of parsing options with
+<code>.strict</code>/<code>.lenient</code> presets, a single <code>LocalizedError</code> enum, full doc
+comments on public <em>and</em> private members, and a broad Swift Testing suite with one test file per
+source file plus an integration suite. The core parser stays Foundation-only so it remains portable;
+everything that needs Accelerate, CoreGraphics or AVFoundation lives in separate files behind
+<code>#if canImport(…)</code> guards, within the single <code>SwiftSER</code> target.
+</p>
+
+<h2>Questions &amp; answers</h2>
+
+<div class="qa">
+    <div class="q">SwiftFITS is strictly Foundation-only and documented as Linux-portable. SER image/movie export needs CoreGraphics + AVFoundation. How should that be structured?</div>
+    <div class="a"><strong>One target, guarded imports.</strong> A single <code>SwiftSER</code> product, as in SwiftFITS. The parser stays Foundation-only; imaging and movie code live in separate files behind <code>#if canImport(AVFoundation)</code> / <code>#if canImport(CoreGraphics)</code> / <code>#if canImport(Accelerate)</code>. One module for consumers, portable core.</div>
+</div>
+
+<div class="qa">
+    <div class="q">SwiftFITS does both reading and writing (build from scratch, serialize, byte-for-byte round-trip). What scope for SwiftSER?</div>
+    <div class="a"><strong>Read-only.</strong> Parse the header, frames and trailer; expose metadata and frame data; export images and movies. No SER writing, no serialization, no round-trip requirement.</div>
+</div>
+
+<div class="qa">
+    <div class="q">Should the library include debayering, and what data format should it use?</div>
+    <div class="a">
+        <strong>Yes — its own, complete implementation.</strong> SwiftSER defines its own
+        <code>SERBayerPattern</code> enum covering <em>all</em> SER patterns, and ships an
+        Accelerate-backed debayering process handling every one of them (including the CMY patterns), so
+        that used as-is the library can always produce a result. The pixel data format is
+        <strong>interleaved <code>[Double]</code>, row-major, non-normalized</strong> (raw stored sample
+        values, not scaled to <code>0...1</code>).
+    </div>
+</div>
+
+<div class="qa">
+    <div class="q">Should debayering be delegable to the consumer?</div>
+    <div class="a">
+        <strong>Yes.</strong> A consumer can install its own debayering implementation. It can signal that it
+        does not support a given pattern, in which case SwiftSER falls back to its own implementation. It can
+        also throw to indicate an error, with a configurable policy deciding whether that falls back to the
+        built-in implementation or propagates to the caller.
+    </div>
+</div>
+
+<div class="qa">
+    <div class="q">The CMYG patterns (ColorID 16–19) have no spec-defined conversion to RGB — real sensors need a per-sensor matrix. Should they be excluded from color output?</div>
+    <div class="a">
+        <strong>No — they must be handled.</strong> The library must always be able to produce a result when
+        used as-is. The plan therefore implements CMY debayering with the complementary-color decode
+        (see <a href="#appendix-cmy">Appendix — CMY to RGB</a>), documented as an approximation that ignores
+        real sensor spectral overlap.
+    </div>
+</div>
+
+<div class="qa">
+    <div class="q">Is a dependency on the existing SwiftPixel pixel-processing library acceptable?</div>
+    <div class="a">
+        <strong>No.</strong> SwiftPixel cannot be a dependency of SwiftSER. It was consulted only to settle the
+        pixel data format (interleaved <code>[Double]</code>, non-normalized), so that a consumer already using
+        it can plug its debayering in through the delegation hook with a trivial adapter. SwiftSER neither
+        imports it nor mirrors its API.
+    </div>
+</div>
+
+<h2>Notes</h2>
+
+<h3>Format facts driving the design</h3>
+
+<p>All of the following are taken directly from <code>SER Doc V3b.pdf</code> and were verified against the PDF text.</p>
+
+<div class="scroll">
+<table>
+    <tr><th>Fact</th><th>Consequence for the implementation</th></tr>
+    <tr>
+        <td>Header is a fixed <strong>178 bytes</strong>; image data starts at offset 178.</td>
+        <td>No block/chunk structure as in FITS. Parsing is a flat field decode at fixed offsets.</td>
+    </tr>
+    <tr>
+        <td>All integer header fields are <strong>little-endian</strong> <code>Integer_32</code> / <code>Integer_64</code> (v3 clarification; v2 did not state it).</td>
+        <td>Header decode is unconditionally little-endian, independent of field 4.</td>
+    </tr>
+    <tr>
+        <td>Field 4 <code>LittleEndian</code> governs byte order of <strong>16-bit image data only</strong>: 0 = big-endian, 1 = little-endian.</td>
+        <td>Frame decode is parameterized on this flag; header decode is not. Note the field name is the inverse of what a naive reading suggests for the 0 case.</td>
+    </tr>
+    <tr>
+        <td><code>NumberOfPlanes</code> is 1 for ColorID 0–19 (MONO and all Bayer), and 3 for RGB (100) / BGR (101).</td>
+        <td>Bayer frames are single-plane mosaics — debayering is the library's job, not the format's.</td>
+    </tr>
+    <tr>
+        <td><code>BytesPerPixel</code> = <code>1 × NumberOfPlanes</code> for <code>PixelDepthPerPlane</code> 1–8, <code>2 × NumberOfPlanes</code> for 9–16.</td>
+        <td>Frame size = <code>width × height × BytesPerPixel</code>; drives both frame offsets and trailer offset.</td>
+    </tr>
+    <tr>
+        <td>Samples of 1–8 bits are stored <strong>MSB-aligned</strong>; samples of 9–16 bits are stored <strong>LSB-aligned</strong>.</td>
+        <td>Asymmetric normalization. A 12-bit sample occupies 0–4095 of a 16-bit container and renders nearly black unless scaled; a 5-bit sample is already left-shifted toward full scale.</td>
+    </tr>
+    <tr>
+        <td>Strings (Observer, Instrument, Telescope) are 40 bytes, ASCII 32–126, unused bytes filled with <code>0</code>.</td>
+        <td>Trim on NUL and validate the printable range; leniency flag for out-of-range bytes.</td>
+    </tr>
+    <tr>
+        <td>Timestamps are 64-bit tick counts of 100 ns since 0001-01-01 00:00:00 (.NET <code>DateTime</code>). Reportedly only 62 bits are meaningful (Behrend); the two MSBs are undocumented.</td>
+        <td>Needs a dedicated conversion to <code>Date</code>, with a documented epoch offset and a leniency flag for the high bits.</td>
+    </tr>
+    <tr>
+        <td>If <code>DateTime &lt;= 0</code>, it is invalid and the file has <strong>no timestamp trailer</strong>.</td>
+        <td>Trailer presence is derived from the header field plus the actual file length, not assumed.</td>
+    </tr>
+    <tr>
+        <td>Trailer starts at <code>178 + FrameCount × Width × Height × BytesPerPixel</code> and holds one 64-bit UTC timestamp per frame.</td>
+        <td>Trailer size is <code>8 × FrameCount</code>; a short or absent trailer is a leniency case.</td>
+    </tr>
+</table>
+</div>
+
+<div class="note">
+<strong>Spec version discrepancy.</strong> V2 field 7 is <code>PixelDepth</code> with <code>BytesPerPixel</code> 1 or 2;
+V3 renames it <code>PixelDepthPerPlane</code> and multiplies by <code>NumberOfPlanes</code>. V2 also lacks RGB/BGR
+(100/101) and states no endianness for header fields. The library implements <strong>V3</strong>, which is a strict
+superset for every file V2 could describe — a V2 file has <code>NumberOfPlanes == 1</code>, so the two definitions
+of <code>BytesPerPixel</code> agree.
+</div>
+
+<h3>Accelerate: what was verified</h3>
+
+<p>Checked against the macOS 26.5 SDK headers, not assumed:</p>
+
+<ul>
+    <li><strong>vImage has no demosaic function at all</strong> — a search of every vImage header for <code>demosaic</code>/<code>debayer</code>/<code>bayer</code> returns nothing.</li>
+    <li><strong>vImage has no double-precision pixel buffer.</strong> <code>Pixel_F</code> is <code>float</code> (<code>vImage_Types.h:272</code>); convolution exists only as <code>vImageConvolve_Planar8</code>, <code>_Planar16F</code>, <code>_PlanarF</code>. Using vImage would force a <code>Double → Float → Double</code> round-trip.</li>
+    <li><strong>vDSP does have everything needed, natively in double precision</strong> — <code>vDSP_f3x3D</code> (3×3 convolution, <code>vDSP.h:2345</code>), <code>vDSP_f5x5D</code> (2359), <code>vDSP_imgfirD</code> (2407), plus <code>vDSP_vfltu8D</code> (5290) and <code>vDSP_vfltu16D</code> (5304) for integer→double conversion.</li>
+</ul>
+
+<p>
+This is what makes an Accelerate-backed <code>[Double]</code> debayer practical: bilinear demosaicing
+<em>is</em> a 3×3 convolution per channel over a masked mosaic, which maps directly onto
+<code>vDSP_f3x3D</code>. See <a href="#appendix-kernels">Appendix — Bilinear kernels</a>.
+</p>
+
+<h3>Conventions to follow</h3>
+
+<ul>
+    <li>MIT header block on every file, <code>Copyright (c) 2026, Jean-David Gadina - www.xs-labs.com</code>.</li>
+    <li>One type per file; subfolders for grouping (<code>Imaging/</code>, <code>Video/</code>, <code>Extensions/</code>).</li>
+    <li>Explicit <code>public</code> throughout the library target; <code>internal</code>/<code>private</code> only for genuine implementation details.</li>
+    <li><strong>SwiftDoc</strong> (<code>///</code>) comments on <strong>every</strong> type and member — <code>public</code>, <code>internal</code> and <code>private</code> alike — with <code>- Parameters:</code>/<code>- Returns:</code>/<code>- Throws:</code>, matching SwiftFITS, where even private helpers carry full documentation.</li>
+    <li>Documentation is written <strong>with the code, in every milestone</strong> — not retrofitted. Milestone 9 <em>verifies</em> coverage; it is not where documentation gets written.</li>
+    <li>No force-unwrap. <code>let</code> over <code>var</code>. Early returns. Aligned <code>=</code> signs. Blank line between calls and assignments.</li>
+    <li>Prefer <code>map</code>/<code>filter</code>/<code>reduce</code>/<code>forEach</code> over raw loops — except in the pixel inner loops, where an explicit indexed loop or an Accelerate call is the correct choice and should carry a comment saying why.</li>
+    <li>Swift Testing (<code>@Test</code>, <code>#expect</code>, <code>#require</code>), one test file per source file, plus <code>Integration.swift</code>.</li>
+    <li>The Xcode project and <code>Package.swift</code> must be kept in sync.</li>
+</ul>
+
+<div class="note">
+<strong>Two build systems, both of which must stay green.</strong> The repository already ships an Xcode project
+with a <code>SwiftSER</code> framework target and a <code>SwiftSERTests</code> test target, <em>and</em> a
+<code>Package.swift</code>. Both must build and test at every milestone — <code>.github/workflows/ci-mac.yaml</code>
+already enforces this, with an <code>xcodebuild</code> job that builds and analyzes both Debug and Release but
+runs tests in <strong>Debug only</strong> (<code>test: 0</code> for Release), plus a separate <code>spm</code>
+job running <code>swift build</code> / <code>swift test</code> in <strong>both</strong> configurations. A
+Release-only test failure is therefore caught by the SPM job alone — another reason not to treat either system
+as standing in for the other.
+<br><br>
+The failure mode is <strong>asymmetric</strong> and easy to miss: the SPM targets are path-based
+(<code>path: "SwiftSER"</code> / <code>path: "SwiftSERTests"</code>), so a new source file is picked up
+automatically, while the Xcode project needs it added explicitly with the right target membership. A file that
+compiles under <code>swift build</code> can therefore be silently absent from the framework — so every milestone
+registers its files in the Xcode project <em>and</em> verifies through both systems, rather than assuming one
+implies the other.
+</div>
+
+<div class="note">
+<strong>Prerequisite for Milestone 9.</strong> The source document states test files can be provided on demand.
+Real <code>.ser</code> captures are needed to validate against the wild — ideally a mono 8-bit, a mono 16-bit,
+an RGB Bayer 16-bit, and one without a timestamp trailer. They belong in a tracked <code>Test Files</code>
+directory at the repository root, matching SwiftFITS. Until they exist, that milestone runs on synthetic
+fixtures only.
+</div>
+
+<h2>Table of contents</h2>
+
+<ul class="toc">
+    <li class="phase">Phase 1 — Parsing foundations</li>
+    <li><a href="#m1">Milestone 1 — Project scaffolding, errors and parsing options</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m2">Milestone 2 — Header parsing</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-notstarted">Not started</span></li>
+
+    <li class="phase">Phase 2 — Pixel data</li>
+    <li><a href="#m4">Milestone 4 — Raw frame access and sample decoding</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m5">Milestone 5 — Debayering: patterns, built-in implementation and delegation</a> <span class="status status-notstarted">Not started</span></li>
+
+    <li class="phase">Phase 3 — Output</li>
+    <li><a href="#m6">Milestone 6 — CGImage export</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m7">Milestone 7 — Movie export</a> <span class="status status-notstarted">Not started</span></li>
+
+    <li class="phase">Phase 4 — Validation and documentation</li>
+    <li><a href="#m8">Milestone 8 — Integration tests and real-file validation</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m9">Milestone 9 — README and public documentation</a> <span class="status status-notstarted">Not started</span></li>
+</ul>
+
+<hr>
+
+<h2>Milestones</h2>
+
+<h3 class="phase-heading">Phase 1 — Parsing foundations</h3>
+
+<div class="milestone" id="m1">
+<h3>Milestone 1 — Project scaffolding, errors and parsing options <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Establish the skeleton every later milestone builds on: the error type, the parsing-options set, and the
+project/package wiring — including a test plan and the folder layout — so that no later milestone has to
+stop and restructure the project. Replaces the placeholder <code>SwiftSER.swift</code> and
+<code>SwiftSERTests.swift</code> stubs.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Delete the placeholder <code>SwiftSER/SwiftSER.swift</code> and <code>SwiftSERTests/SwiftSERTests.swift</code>.</li>
+    <li>Create <code>SERError.swift</code> — a <code>public enum SERError: LocalizedError, CustomStringConvertible, Sendable</code> mirroring <code>FITSError</code>'s shape, with a <code>"SER Error: …"</code> description prefix. Cases: <code>invalidFileURL</code>, <code>cannotReadFile</code>, <code>invalidHeaderData</code>, <code>invalidFrameData</code>, <code>invalidTrailerData</code>, <code>frameIndexOutOfRange</code>, <code>unsupportedColorID</code>, <code>unsupportedPixelDepth</code>, <code>dataError</code>, <code>debayerError</code>, <code>imageCreationFailed</code>, <code>movieExportFailed</code>.</li>
+    <li>Create <code>SERParsingOptions.swift</code> — an <code>OptionSet</code> with <code>.strict</code> and <code>.lenient</code> presets, following <code>FITSParsingOptions</code>' documentation style. Leniency flags: <code>allowInvalidFileID</code>, <code>allowNonPrintableStrings</code>, <code>allowFrameCountMismatch</code>, <code>allowMissingTrailer</code>, <code>allowShortTrailer</code>, <code>allowUnknownColorID</code>, <code>allowOutOfRangePixelDepth</code>, <code>allowInvalidTimestamps</code>.</li>
+    <li>Create the source folder layout: <code>SwiftSER/</code> root for the Foundation-only core, <code>SwiftSER/Imaging/</code>, <code>SwiftSER/Video/</code>, <code>SwiftSER/Extensions/</code>.</li>
+    <li>Add a <code>Data</code> extension with little/big-endian fixed-width integer reads at an offset, and a bounds-checked subrange read that throws rather than traps.</li>
+    <li>Add <code>SwiftSER.xctestplan</code> mirroring <code>SwiftFITS.xctestplan</code>, and reference it from the shared scheme.</li>
+    <li>Register every new file in <code>SwiftSER.xcodeproj</code>; confirm <code>Package.swift</code> still resolves (path-based targets need no change).</li>
+    <li>Write <code>SERError</code> and <code>SERParsingOptions</code> unit tests, plus tests for the <code>Data</code> extension including the throwing bounds cases.</li>
+    <li>Verify: <code>xcodebuild</code> build + test, and <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<div class="milestone" id="m2">
+<h3>Milestone 2 — Header parsing <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Decode the fixed 178-byte header into a fully typed, documented value, with every field validated and every
+derived quantity (planes, bytes per pixel, frame size) computed once and exposed. This is the foundation for
+frame addressing, so its arithmetic must be overflow-safe.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>SERColorID.swift</code> — the raw <code>Int32</code> ColorID as an enum: <code>mono</code> (0), the four RGB Bayer patterns (8–11), the four CMY Bayer patterns (16–19), <code>rgb</code> (100), <code>bgr</code> (101). Expose <code>numberOfPlanes</code> and an <code>isBayer</code> flag. Preserve unrecognized values under <code>allowUnknownColorID</code>.</li>
+    <li>Create <code>SERBayerPattern.swift</code> — <code>rggb</code>, <code>grbg</code>, <code>gbrg</code>, <code>bggr</code>, <code>cyym</code>, <code>ycmy</code>, <code>ymcy</code>, <code>myyc</code>, with a <code>description</code> giving the four-letter code, an <code>isCMY</code> flag, and the 2×2 tile layout used by the debayer. Derived from <code>SERColorID</code>.</li>
+    <li>Create <code>SERHeader.swift</code> — all 13 fields, decoded little-endian at fixed offsets: <code>fileID</code>, <code>luID</code>, <code>colorID</code>, <code>isLittleEndian</code>, <code>imageWidth</code>, <code>imageHeight</code>, <code>pixelDepthPerPlane</code>, <code>frameCount</code>, <code>observer</code>, <code>instrument</code>, <code>telescope</code>, <code>dateTime</code>, <code>dateTimeUTC</code>.</li>
+    <li>Expose the derived geometry: <code>numberOfPlanes</code>, <code>bytesPerPixel</code>, <code>bytesPerFrame</code>, <code>bayerPattern</code>, and a <code>hasTimestampTrailer</code> flag from <code>dateTime &gt; 0</code>. Use <code>multipliedReportingOverflow</code> throughout and throw on overflow rather than trapping.</li>
+    <li>Validate under <code>.strict</code>: <code>fileID == "LUCAM-RECORDER"</code>, positive dimensions, <code>pixelDepthPerPlane</code> in <code>1...16</code>, non-negative <code>frameCount</code>, strings within ASCII 32–126. Each has a matching leniency flag.</li>
+    <li>Implement 40-byte string decoding: NUL-trim, printable-range validation, leniency fallback.</li>
+    <li>Add <code>CustomStringConvertible</code> to <code>SERHeader</code>, following <code>FITSSection.description</code>'s style.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write <code>SERHeader</code>, <code>SERColorID</code> and <code>SERBayerPattern</code> unit tests from synthetic 178-byte headers: every ColorID, both endianness values, every depth boundary (1, 8, 9, 16), each validation failure under strict and its leniency counterpart, and overflow-inducing geometry.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<div class="milestone" id="m3">
+<h3>Milestone 3 — File structure, frame index and timestamps <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Introduce <code>SERFile</code>, the top-level entry point: it opens a file, parses the header, validates the
+overall layout against the actual byte length, and exposes the frame count plus per-frame UTC timestamps.
+Frames are addressed lazily — a multi-gigabyte capture must not be read into memory to be inspected.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>SERFile.swift</code> with <code>init(url:options:)</code> and <code>init(data:options:)</code>, mirroring <code>FITSFile</code>: memory-map with <code>.mappedIfSafe</code>, classify failures <em>after</em> the read attempt to avoid a TOCTOU gap, and carry the same <code>SIGBUS</code> caveat note in the doc comment.</li>
+    <li>Validate the layout: length ≥ 178; expected image-data length <code>frameCount × bytesPerFrame</code>; detect trailer presence by comparing actual length against <code>178 + imageDataLength</code> and <code>+ 8 × frameCount</code>.</li>
+    <li>Reconcile a declared <code>frameCount</code> that disagrees with the file length — throw under <code>.strict</code>, clamp to the number of whole frames actually present under <code>allowFrameCountMismatch</code>, and record the discrepancy.</li>
+    <li>Create <code>SERTimestamp.swift</code> — convert the 64-bit tick value (100 ns units since 0001-01-01) to <code>Date</code>. Document the epoch offset explicitly, mask to 62 bits under <code>allowInvalidTimestamps</code>, and return <code>nil</code> for non-positive values.</li>
+    <li>Expose <code>timestamps: [ Date? ]</code>, parsed lazily from the trailer, plus <code>startTime</code> / <code>startTimeUTC</code> from header fields 12 and 13.</li>
+    <li>Expose <code>frameCount</code>, <code>header</code>, and a <code>byteOffset(ofFrame:)</code> helper that throws <code>frameIndexOutOfRange</code> rather than trapping.</li>
+    <li>Add <code>CustomStringConvertible</code> to <code>SERFile</code>.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write <code>SERFile</code> and <code>SERTimestamp</code> unit tests: truncated files, absent trailer, short trailer, frame-count mismatch under both option sets, out-of-range frame indices, timestamp epoch conversion against known values, and the 62-bit masking path.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<h3 class="phase-heading">Phase 2 — Pixel data</h3>
+
+<div class="milestone" id="m4">
+<h3>Milestone 4 — Raw frame access and sample decoding <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Expose individual frames and decode their samples correctly — the part of the format most likely to be got
+subtly wrong. This milestone owns the three traps: MSB versus LSB bit alignment, the header-driven byte order
+for 16-bit data, and the fact that 16-bit SER samples are <em>unsigned</em>.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>SERFrame.swift</code> — a frame view holding its index, its slice of the file's data, and a reference to the header. Provides the raw bytes untouched, plus its timestamp when available.</li>
+    <li>Implement sample decoding to <code>[Double]</code>, <strong>interleaved, row-major, non-normalized</strong>: 8-bit samples widened directly; 16-bit samples byte-swapped per the header's <code>LittleEndian</code> field and widened as <strong>unsigned</strong>.</li>
+    <li>Implement bit-alignment handling: for <code>pixelDepthPerPlane</code> 1–8 the sample is MSB-aligned within its byte; for 9–16 it is LSB-aligned within its 16-bit container. Expose the true value range (<code>0...(2^depth - 1)</code> for the LSB-aligned case) so later stages can scale correctly.</li>
+    <li>Add <code>SERFrame.samples</code> for the decoded <code>[Double]</code> and <code>SERFrame.rawData</code> for the untouched bytes. Keep decoding lazy so enumerating frames costs nothing until samples are requested.</li>
+    <li>Handle the BGR channel order (ColorID 101) by reordering to RGB during decode, so everything downstream sees RGB.</li>
+    <li>Add frame access on <code>SERFile</code>: <code>frame(at:)</code>, a <code>frames</code> lazy collection, and <code>Sequence</code> conformance for iteration.</li>
+    <li>Use Accelerate for the widening when available (<code>vDSP_vfltu8D</code> / <code>vDSP_vfltu16D</code>). Keep the plain-Swift implementation <strong>always compiled</strong> — only the Accelerate one is wrapped in <code>#if canImport(Accelerate)</code> — with an <code>internal</code> selector so tests can force either path. Guarding both would leave the fallback never compiled or tested on macOS, where the import always succeeds.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write <code>SERFrame</code> unit tests: every depth boundary (1, 8, 9, 12, 16), both byte orders, MONO/RGB/BGR channel handling, unsigned 16-bit values above 32767 decoding positive, out-of-range indices, and Accelerate/scalar path equivalence.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<div class="milestone" id="m5">
+<h3>Milestone 5 — Debayering: patterns, built-in implementation and delegation <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Turn single-plane Bayer mosaics into 3-channel RGB. SwiftSER ships a complete, Accelerate-backed bilinear
+implementation covering <strong>all eight</strong> SER Bayer patterns — RGB and CMY alike — so the library
+always produces a result on its own. A consumer with a better implementation can take over, decline
+individual patterns, or fail, with SwiftSER's own implementation as the safety net.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>SERDebayering.swift</code> — the delegation protocol:
+        <pre><code>public protocol SERDebayering
+{
+    /// Whether this implementation handles the given pattern. When `false`,
+    /// SwiftSER uses its own built-in implementation instead.
+    func supports( pattern: SERBayerPattern ) -&gt; Bool
+
+    /// - Parameter mosaic: single-plane, row-major, non-normalized samples
+    /// - Returns: interleaved RGB, row-major, `width * height * 3` samples
+    func debayer( mosaic: [ Double ], width: Int, height: Int, pattern: SERBayerPattern ) throws -&gt; [ Double ]
+}</code></pre>
+    </li>
+    <li>Create <code>SERDebayerFailurePolicy.swift</code> — <code>fallBackToBuiltIn</code> (default) or <code>propagate</code>, deciding what happens when a delegate throws. A delegate returning <code>false</code> from <code>supports(pattern:)</code> <em>always</em> falls back, regardless of policy — declining is not an error.</li>
+    <li>Create <code>SERBilinearDebayering.swift</code> — the built-in implementation, conforming to the same protocol and reporting <code>true</code> for every pattern.</li>
+    <li>Implement the RGB path: build three masked planes from the pattern's 2×2 tile, convolve each with its bilinear kernel (<a href="#appendix-kernels">Appendix</a>), and interleave. Use <code>vDSP_f3x3D</code> when Accelerate is available, keeping the equivalent plain-Swift convolution always compiled and selectable, as in Milestone 4.</li>
+    <li>Implement the CMY path: interpolate the C/Y/M planes with the same kernels (yellow is the twice-sampled channel, as green is in RGB Bayer), then apply the complementary-color transform (<a href="#appendix-cmy">Appendix</a>) as a 3×3 matrix multiply. Document it prominently as an approximation that ignores real sensor spectral response.</li>
+    <li>Handle edges by clamping coordinates to the image bounds, so border pixels interpolate from the same colors interior pixels would see.</li>
+    <li>Wire delegation into <code>SERFile</code>: a <code>debayering: SERDebayering?</code> property and a <code>debayerFailurePolicy</code> property, both defaulting so the library works untouched.</li>
+    <li>Ensure MONO (ColorID 0) bypasses debayering entirely and RGB/BGR (100/101) are already 3-channel — neither goes through this path.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write debayering unit tests: each of the eight patterns against hand-computed expected output on a small synthetic mosaic; edge/corner correctness; a delegate that is used; one that declines via <code>supports</code>; one that throws under each failure policy; Accelerate/scalar equivalence; and geometry-mismatch errors.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<h3 class="phase-heading">Phase 3 — Output</h3>
+
+<div class="milestone" id="m6">
+<h3>Milestone 6 — CGImage export <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Render any frame — mono, RGB, BGR or debayered Bayer, at any bit depth — to a <code>CGImage</code>, correctly
+scaled so that a 10-, 12- or 14-bit capture is not displayed nearly black.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>Imaging/SERFrame+CGImage.swift</code> behind <code>#if canImport(CoreGraphics)</code>.</li>
+    <li>Implement range scaling from the frame's true value range to full output range, with an explicit option to disable it. Raw sample access stays unscaled; only image output scales.</li>
+    <li>Support 1-channel gray and 3-channel RGB output. Verify the exact supported <code>bitsPerComponent</code>/<code>bitsPerPixel</code>/<code>CGBitmapInfo</code> combinations against Apple's documented pixel formats before committing to a layout — do not assume 24 bpp RGB is accepted.</li>
+    <li>Build the image through <code>CGDataProvider</code>, throwing <code>imageCreationFailed</code> rather than force-unwrapping.</li>
+    <li>Add a convenience on <code>SERFile</code> to produce the image for a frame index directly.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write image-export unit tests: dimensions and channel count for each ColorID class, scaled versus unscaled output for a sub-byte depth, and the failure path.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<div class="milestone" id="m7">
+<h3>Milestone 7 — Movie export <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Encode a whole SER sequence into a playable QuickTime movie, streaming frame by frame so that a capture far
+larger than available memory still exports.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>Video/SERMovieWriter.swift</code> behind <code>#if canImport(AVFoundation)</code>.</li>
+    <li>Verify the deployment-target and platform implications first: <code>Package.swift</code> currently declares no <code>platforms:</code>, while the Xcode project targets macOS 15.0. Add an explicit platform declaration to the package if AVFoundation requires it, keeping both in sync.</li>
+    <li>Drive <code>AVAssetWriter</code> + <code>AVAssetWriterInputPixelBufferAdaptor</code>, converting each frame to a <code>CVPixelBuffer</code> in <code>kCVPixelFormatType_32BGRA</code>.</li>
+    <li>Expose export options: output URL, codec, and frame rate — either a caller-supplied constant or derived from the trailer timestamps when present. Document precisely what happens when timestamps are absent or non-monotonic.</li>
+    <li>Stream frames with proper back-pressure via <code>isReadyForMoreMediaData</code>; never materialize the whole sequence.</li>
+    <li>Report progress and support cancellation.</li>
+    <li>Surface failures as <code>movieExportFailed</code> with the underlying <code>AVAssetWriter</code> error reason.</li>
+    <li>Register files in the Xcode project.</li>
+    <li>Write movie-export unit tests: a short synthetic sequence exported to a temporary URL, re-opened with <code>AVAsset</code> to confirm duration, dimensions and frame count; the cancellation path; and the failure path for an unwritable destination.</li>
+    <li>Verify: <code>xcodebuild</code> build + test <strong>and</strong> <code>swift build</code> / <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<h3 class="phase-heading">Phase 4 — Validation and documentation</h3>
+
+<div class="milestone" id="m8">
+<h3>Milestone 8 — Integration tests and real-file validation <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Prove the layers work together end to end, and validate against real captures rather than only synthetic
+fixtures — the step that catches what a spec reading alone cannot.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Create <code>SwiftSERTests/TestUtilities.swift</code> — synthetic SER builders (header + frames + optional trailer, parameterized by ColorID, depth, endianness and frame count), and a <code>testFiles</code> fixture locator following SwiftFITS's <code>#filePath</code>-relative <code>SWIFT_PACKAGE</code> approach so the suite degrades gracefully when no fixtures are present.</li>
+    <li>Create <code>SwiftSERTests/Integration.swift</code> — full-pipeline tests: open → header → frame → debayer → <code>CGImage</code> → movie, for a mono file, an RGB Bayer file, and a file without a trailer.</li>
+    <li>Add a <code>Test Files</code> directory at the repository root and populate it with real <code>.ser</code> captures (<em>requires the user to supply them</em>), tracked in Git as SwiftFITS does.</li>
+    <li>Add a test that walks every fixture, parses it, and reads its first and last frame — the equivalent of SwiftFITS's broad corpus test.</li>
+    <li>Reconcile any real-world deviation found against the leniency flags, adding flags only where a real file demands it.</li>
+    <li>Confirm the suite passes under both Debug and Release, and via both <code>xcodebuild</code> and <code>swift test</code>.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<div class="milestone" id="m9">
+<h3>Milestone 9 — README and public documentation <span class="status status-notstarted">Not started</span></h3>
+
+<div class="field">
+<div class="label">Goal</div>
+<p>
+Fill in the placeholder README sections and document the library's conformance and limitations honestly,
+following SwiftFITS's README structure.
+</p>
+</div>
+
+<div class="field">
+<div class="label">Tasks</div>
+<ul class="tasks">
+    <li>Write the <strong>About</strong> section: what SER is and what the library does.</li>
+    <li>Add a <strong>Status</strong> section stating clearly that the library is read-only.</li>
+    <li>Add a <strong>Conformance &amp; Limitations</strong> section covering: V3 implemented as a superset of V2; the CMY conversion documented as an approximation; the LSB/MSB alignment rules; strict versus lenient behavior; the 62-bit timestamp caveat; and thread-safety.</li>
+    <li>Add a <strong>Requirements &amp; Portability</strong> section explaining that the core is Foundation-only while imaging, debayer acceleration and movie export are guarded by <code>canImport</code>.</li>
+    <li>Write <strong>Example Usage</strong>: reading metadata, iterating frames, producing a <code>CGImage</code>, exporting a movie, and installing a custom debayering implementation.</li>
+    <li>Audit SwiftDoc coverage across the whole library: every type and member — <code>public</code>, <code>internal</code> and <code>private</code> — carries a <code>///</code> comment, with <code>- Parameters:</code>/<code>- Returns:</code>/<code>- Throws:</code> where applicable. <code>/xs:doc</code> can run this sweep. Gaps found here are a lapse against the per-milestone convention, not the expected state.</li>
+    <li>Verify: final full build and test run through both build systems, under Debug and Release.</li>
+</ul>
+</div>
+
+<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
+<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
+<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
+<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
+<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+</div>
+
+<hr>
+
+<h2 id="appendix">Appendix</h2>
+
+<h3 id="appendix-header">SER header layout (version 3)</h3>
+
+<div class="scroll">
+<table>
+    <tr><th>#</th><th>Offset</th><th>Field</th><th>Type</th><th>Bytes</th><th>Content</th></tr>
+    <tr><td>1</td><td>0</td><td>FileID</td><td>ASCII</td><td>14</td><td><code>"LUCAM-RECORDER"</code> (fixed)</td></tr>
+    <tr><td>2</td><td>14</td><td>LuID</td><td>Int32 LE</td><td>4</td><td>Lumenera camera series ID (unused, default 0)</td></tr>
+    <tr><td>3</td><td>18</td><td>ColorID</td><td>Int32 LE</td><td>4</td><td>See table below</td></tr>
+    <tr><td>4</td><td>22</td><td>LittleEndian</td><td>Int32 LE</td><td>4</td><td>0 = big-endian, 1 = little-endian 16-bit image data</td></tr>
+    <tr><td>5</td><td>26</td><td>ImageWidth</td><td>Int32 LE</td><td>4</td><td>Width in pixels</td></tr>
+    <tr><td>6</td><td>30</td><td>ImageHeight</td><td>Int32 LE</td><td>4</td><td>Height in pixels</td></tr>
+    <tr><td>7</td><td>34</td><td>PixelDepthPerPlane</td><td>Int32 LE</td><td>4</td><td>True bit depth per pixel per plane (1–16)</td></tr>
+    <tr><td>8</td><td>38</td><td>FrameCount</td><td>Int32 LE</td><td>4</td><td>Number of image frames</td></tr>
+    <tr><td>9</td><td>42</td><td>Observer</td><td>ASCII</td><td>40</td><td>Printable 32–126, NUL-filled</td></tr>
+    <tr><td>10</td><td>82</td><td>Instrument</td><td>ASCII</td><td>40</td><td>Camera name</td></tr>
+    <tr><td>11</td><td>122</td><td>Telescope</td><td>ASCII</td><td>40</td><td>Telescope name</td></tr>
+    <tr><td>12</td><td>162</td><td>DateTime</td><td>Int64 LE</td><td>8</td><td>Start time, local. <code>&lt;= 0</code> means invalid and no trailer.</td></tr>
+    <tr><td>13</td><td>170</td><td>DateTime_UTC</td><td>Int64 LE</td><td>8</td><td>Start time, UTC</td></tr>
+</table>
+</div>
+
+<p>
+Total: 178 bytes. Image data begins at offset 178. Offsets are derived from the field order and sizes given in
+the specification, which lists lengths but not absolute offsets — they must be confirmed against a real file
+during Milestone 2.
+</p>
+
+<h3 id="appendix-colorid">ColorID values</h3>
+
+<div class="scroll">
+<table>
+    <tr><th>Value</th><th>Name</th><th>Planes</th><th>Handling</th></tr>
+    <tr><td>0</td><td>MONO</td><td>1</td><td>Single gray plane, no debayering</td></tr>
+    <tr><td>8</td><td>BAYER_RGGB</td><td>1</td><td>RGB Bayer — bilinear debayer</td></tr>
+    <tr><td>9</td><td>BAYER_GRBG</td><td>1</td><td>RGB Bayer — bilinear debayer</td></tr>
+    <tr><td>10</td><td>BAYER_GBRG</td><td>1</td><td>RGB Bayer — bilinear debayer</td></tr>
+    <tr><td>11</td><td>BAYER_BGGR</td><td>1</td><td>RGB Bayer — bilinear debayer</td></tr>
+    <tr><td>16</td><td>BAYER_CYYM</td><td>1</td><td>CMY Bayer — bilinear debayer + complementary transform</td></tr>
+    <tr><td>17</td><td>BAYER_YCMY</td><td>1</td><td>CMY Bayer — bilinear debayer + complementary transform</td></tr>
+    <tr><td>18</td><td>BAYER_YMCY</td><td>1</td><td>CMY Bayer — bilinear debayer + complementary transform</td></tr>
+    <tr><td>19</td><td>BAYER_MYYC</td><td>1</td><td>CMY Bayer — bilinear debayer + complementary transform</td></tr>
+    <tr><td>100</td><td>RGB</td><td>3</td><td>Already interleaved RGB</td></tr>
+    <tr><td>101</td><td>BGR</td><td>3</td><td>Already interleaved, reordered to RGB on decode</td></tr>
+</table>
+</div>
+
+<h3 id="appendix-kernels">Bilinear demosaic kernels</h3>
+
+<p>
+Bilinear demosaicing is a per-channel 3×3 convolution over a masked mosaic: build a plane holding each site's
+sample where its filter matches the channel and zero elsewhere, then convolve. Red and blue are sampled once
+per 2×2 tile, green (or yellow, for CMY) twice — hence the two kernels:
+</p>
+
+<pre><code>Red / Blue          Green / Yellow
+(sampled 1 per      (sampled 2 per
+ 2x2 tile)           2x2 tile)
+
+1/4 * [ 1 2 1 ]     1/4 * [ 0 1 0 ]
+      [ 2 4 2 ]           [ 1 4 1 ]
+      [ 1 2 1 ]           [ 0 1 0 ]</code></pre>
+
+<p>
+Both map directly onto <code>vDSP_f3x3D</code>. Coordinates are clamped to the image bounds so border sites
+interpolate from the same color arrangement interior sites would see.
+</p>
+
+<h3 id="appendix-cmy">CMY to RGB conversion</h3>
+
+<p>
+The CMY Bayer tiles hold cyan, yellow and magenta samples, with yellow appearing twice per tile. Complementary
+color filters relate to additive primaries as:
+</p>
+
+<pre><code>C = G + B
+Y = R + G
+M = R + B</code></pre>
+
+<p>Solving that system for the additive primaries gives:</p>
+
+<pre><code>R = ( Y + M - C ) / 2
+G = ( C + Y - M ) / 2
+B = ( C + M - Y ) / 2</code></pre>
+
+<div class="note">
+<strong>This is an approximation.</strong> It assumes ideal, non-overlapping filter responses. Real CMYG sensors
+have substantial spectral overlap and need a per-sensor calibration matrix, which the SER format does not record
+and the specification does not define. Colors produced from ColorID 16–19 are therefore plausible but not
+colorimetrically accurate, and the public documentation must say so. Results are clamped to the valid range,
+since the transform can produce out-of-range values on noisy input.
+</div>
+
+<h3 id="appendix-alignment">Bit alignment</h3>
+
+<p>
+The specification's alignment rules are asymmetric, and getting this wrong produces images that are either
+too dark or subtly quantized:
+</p>
+
+<div class="scroll">
+<table>
+    <tr><th>Depth</th><th>Container</th><th>Alignment</th><th>Example</th><th>Stored range</th></tr>
+    <tr><td>1–8</td><td>8-bit</td><td>MSB</td><td>5-bit → <code>bbbbb000</code></td><td>Already near full scale</td></tr>
+    <tr><td>9–16</td><td>16-bit</td><td>LSB</td><td>12-bit → <code>0000bbbbbbbbbbbb</code></td><td><code>0...4095</code> of <code>0...65535</code></td></tr>
+</table>
+</div>
+
+<p>
+The 9–16 bit case is why image and movie output scale by default: handing a 12-bit frame to CoreGraphics
+untouched renders it at roughly 6% brightness.
+</p>
+
+<h3 id="appendix-consumer">Delegating debayering to an external library</h3>
+
+<p>
+SwiftSER has no dependencies, so a consumer wanting to use its own debayering supplies an adapter. Using
+SwiftPixel as an example — a library working on interleaved, non-normalized <code>[Double]</code> buffers, which
+is why SwiftSER adopted that same currency:
+</p>
+
+<pre><code>import SwiftPixel
+import SwiftSER
+
+struct PixelDebayering: SERDebayering
+{
+    func supports( pattern: SERBayerPattern ) -&gt; Bool
+    {
+        pattern.isCMY == false // SwiftPixel implements the four RGB patterns
+    }
+
+    func debayer( mosaic: [ Double ], width: Int, height: Int, pattern: SERBayerPattern ) throws -&gt; [ Double ]
+    {
+        var buffer = try PixelBuffer( width: width, height: height, channels: 1, pixels: mosaic, isNormalized: false )
+
+        try Processors.Debayer( mode: .vng, pattern: pattern.pixelPattern ).process( buffer: &amp;buffer )
+
+        return buffer.pixels
+    }
+}</code></pre>
+
+<p>
+The pattern mapping lives in the consumer's code, since SwiftSER cannot reference an external library's types:
+</p>
+
+<pre><code>extension SERBayerPattern
+{
+    var pixelPattern: Processors.Debayer.Pattern
+    {
+        switch self
+        {
+            case .rggb: return .rggb
+            case .grbg: return .grbg
+            case .gbrg: return .gbrg
+            case .bggr: return .bggr
+            default:    return .rggb // unreachable: declined by supports(pattern:)
+        }
+    }
+}</code></pre>
+
+<p>
+Declining the CMY patterns through <code>supports(pattern:)</code> means SwiftSER transparently handles those
+four with its own implementation, so the consumer still gets a result for every file.
+</p>
+
+</div>
+</body>
+</html>
