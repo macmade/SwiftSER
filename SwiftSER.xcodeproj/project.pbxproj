@@ -8,8 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		052BAC89301A32A800E89E15 /* SwiftSER.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 052BAC7F301A32A800E89E15 /* SwiftSER.framework */; };
-		052BAC9D301A32C300E89E15 /* SwiftSER.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052BAC9B301A32C300E89E15 /* SwiftSER.swift */; };
-		052BACA0301A32C500E89E15 /* SwiftSERTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052BAC9E301A32C500E89E15 /* SwiftSERTests.swift */; };
+		05E10011301A32C300E89E15 /* SERError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10001301A32C300E89E15 /* SERError.swift */; };
+		05E10012301A32C300E89E15 /* SERParsingOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10002301A32C300E89E15 /* SERParsingOptions.swift */; };
+		05E10014301A32C300E89E15 /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10004301A32C300E89E15 /* Data.swift */; };
+		05E10016301A32C300E89E15 /* SERError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10006301A32C300E89E15 /* SERError.swift */; };
+		05E10017301A32C300E89E15 /* SERParsingOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10007301A32C300E89E15 /* SERParsingOptions.swift */; };
+		05E10018301A32C300E89E15 /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E10008301A32C300E89E15 /* Data.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,8 +29,13 @@
 /* Begin PBXFileReference section */
 		052BAC7F301A32A800E89E15 /* SwiftSER.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SwiftSER.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		052BAC88301A32A800E89E15 /* SwiftSERTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftSERTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		052BAC9B301A32C300E89E15 /* SwiftSER.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSER.swift; sourceTree = "<group>"; };
-		052BAC9E301A32C500E89E15 /* SwiftSERTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSERTests.swift; sourceTree = "<group>"; };
+		05E10001301A32C300E89E15 /* SERError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERError.swift; sourceTree = "<group>"; };
+		05E10002301A32C300E89E15 /* SERParsingOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERParsingOptions.swift; sourceTree = "<group>"; };
+		05E10004301A32C300E89E15 /* Data.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Data.swift; sourceTree = "<group>"; };
+		05E10005301A32C300E89E15 /* SwiftSER.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SwiftSER.xctestplan; sourceTree = "<group>"; };
+		05E10006301A32C300E89E15 /* SERError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERError.swift; sourceTree = "<group>"; };
+		05E10007301A32C300E89E15 /* SERParsingOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERParsingOptions.swift; sourceTree = "<group>"; };
+		05E10008301A32C300E89E15 /* Data.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Data.swift; sourceTree = "<group>"; };
 		052BACA1301A32D000E89E15 /* CODE_OF_CONDUCT.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CODE_OF_CONDUCT.md; sourceTree = "<group>"; };
 		052BACA2301A32D000E89E15 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		052BACA3301A32D000E89E15 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -103,6 +112,7 @@
 				052BACA3301A32D000E89E15 /* README.md */,
 				052BACA2301A32D000E89E15 /* LICENSE */,
 				052BACA1301A32D000E89E15 /* CODE_OF_CONDUCT.md */,
+				05E10005301A32C300E89E15 /* SwiftSER.xctestplan */,
 				052BACDB301A32E800E89E15 /* xcconfig */,
 				052BAC9C301A32C300E89E15 /* SwiftSER */,
 				052BAC9F301A32C500E89E15 /* SwiftSERTests */,
@@ -122,7 +132,9 @@
 		052BAC9C301A32C300E89E15 /* SwiftSER */ = {
 			isa = PBXGroup;
 			children = (
-				052BAC9B301A32C300E89E15 /* SwiftSER.swift */,
+				05E10003301A32C300E89E15 /* Extensions */,
+				05E10001301A32C300E89E15 /* SERError.swift */,
+				05E10002301A32C300E89E15 /* SERParsingOptions.swift */,
 			);
 			path = SwiftSER;
 			sourceTree = "<group>";
@@ -130,9 +142,19 @@
 		052BAC9F301A32C500E89E15 /* SwiftSERTests */ = {
 			isa = PBXGroup;
 			children = (
-				052BAC9E301A32C500E89E15 /* SwiftSERTests.swift */,
+				05E10008301A32C300E89E15 /* Data.swift */,
+				05E10006301A32C300E89E15 /* SERError.swift */,
+				05E10007301A32C300E89E15 /* SERParsingOptions.swift */,
 			);
 			path = SwiftSERTests;
+			sourceTree = "<group>";
+		};
+		05E10003301A32C300E89E15 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				05E10004301A32C300E89E15 /* Data.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 		052BACA5301A32E800E89E15 /* .github */ = {
@@ -374,7 +396,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				052BAC9D301A32C300E89E15 /* SwiftSER.swift in Sources */,
+				05E10014301A32C300E89E15 /* Data.swift in Sources */,
+				05E10011301A32C300E89E15 /* SERError.swift in Sources */,
+				05E10012301A32C300E89E15 /* SERParsingOptions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -382,7 +406,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				052BACA0301A32C500E89E15 /* SwiftSERTests.swift in Sources */,
+				05E10018301A32C300E89E15 /* Data.swift in Sources */,
+				05E10016301A32C300E89E15 /* SERError.swift in Sources */,
+				05E10017301A32C300E89E15 /* SERParsingOptions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

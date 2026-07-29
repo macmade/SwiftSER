@@ -533,7 +533,7 @@ fixtures only.
 
 <ul class="toc">
     <li class="phase">Phase 1 — Parsing foundations</li>
-    <li><a href="#m1">Milestone 1 — Project scaffolding, errors and parsing options</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m1">Milestone 1 — Project scaffolding, errors and parsing options</a> <span class="status status-completed">Completed</span></li>
     <li><a href="#m2">Milestone 2 — Header parsing</a> <span class="status status-notstarted">Not started</span></li>
     <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-notstarted">Not started</span></li>
 
@@ -557,7 +557,7 @@ fixtures only.
 <h3 class="phase-heading">Phase 1 — Parsing foundations</h3>
 
 <div class="milestone" id="m1">
-<h3>Milestone 1 — Project scaffolding, errors and parsing options <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 1 — Project scaffolding, errors and parsing options <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -584,11 +584,149 @@ stop and restructure the project. Replaces the placeholder <code>SwiftSER.swift<
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-07-29</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first. Each behavior was pinned by a test that was run and observed to fail — in Swift the
+red phase is the compiler rejecting the test because the API does not exist yet — before the implementation
+was written. The suite went from 22 to 23 tests over the milestone; all of them pass.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/SERError.swift</code> — the twelve cases the plan lists, shaped after <code>FITSError</code>:
+        <code>LocalizedError, CustomStringConvertible, Sendable</code>, with the <code>"SER Error: …"</code> prefix on
+        <code>description</code>. Payloads were chosen to match the format rather than the call site:
+        <code>unsupportedColorID</code> and <code>unsupportedPixelDepth</code> carry <code>Int32</code>, mirroring the
+        header's <code>Integer_32</code> fields, while <code>frameIndexOutOfRange</code> carries
+        <code>Int</code> index and count, since that is an API-boundary concern.</li>
+    <li><code>SwiftSER/SERParsingOptions.swift</code> — the eight leniency flags on bits 0–7. Unlike
+        <code>FITSParsingOptions</code>, SER has no "spec convenience" options to reassemble multi-record values, so
+        <code>.strict</code> is the empty set and <code>.lenient</code> is all eight flags.</li>
+    <li><code>SwiftSER/Extensions/Data.swift</code> — <code>integer(_:at:littleEndian:)</code> and
+        <code>slice(at:count:)</code>.</li>
+    <li><code>SwiftSERTests/SERError.swift</code>, <code>SwiftSERTests/SERParsingOptions.swift</code>,
+        <code>SwiftSERTests/Data.swift</code> — one test file per source file.</li>
+    <li><code>SwiftSER.xctestplan</code> — mirroring <code>SwiftFITS.xctestplan</code>, referenced from the shared
+        scheme, which previously carried <code>shouldAutocreateTestPlan = "YES"</code>.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>Integer decoding combines bytes explicitly</strong> rather than reinterpreting memory in place, so
+        no offset alignment is required and the result never depends on the host's byte order. It relies on Swift's
+        <code>&lt;&lt;</code> being a total "smart shift" that discards overflowing bits instead of trapping, which is
+        exactly right for a signed type whose stored high bit is set — verified by test
+        (<code>0x00000080</code> little-endian decodes to <code>Int32.min</code>) and independently by both reviewers.</li>
+    <li><strong>Offsets are relative to the receiver's <code>startIndex</code></strong>, not to index zero, so a
+        <code>Data</code> slice reads identically to standalone data holding the same bytes. Two tests pin this;
+        Milestone 4 will hand frame slices to these methods.</li>
+    <li><strong>The subrange helper returns a slice, not a copy</strong>, so slicing a memory-mapped multi-gigabyte
+        capture does not touch the underlying pages. It is named <code>slice(at:count:)</code> rather than
+        <code>subdata(at:count:)</code> precisely because Foundation's <code>subdata(in:)</code> has the opposite
+        semantics (it copies and rebases to zero) — see the automated review below.</li>
+    <li><strong>Bounds checks throw instead of trapping</strong>, and <code>offset + count</code> goes through
+        <code>addingReportingOverflow</code> so a wrapped range can never look valid. Negative offsets and counts
+        are rejected before the arithmetic.</li>
+    <li><strong>Only <code>Extensions/</code> was created</strong>, not <code>Imaging/</code> and <code>Video/</code>.
+        Git cannot track empty directories and an empty Xcode group is noise; Milestones 6 and 7 create them with
+        their first file.</li>
+</ul>
+
+<p><strong>Verification</strong></p>
+
+<p>
+Both build systems, both configurations, at the end of the milestone:
+<code>swift test</code> Debug and Release — 23 tests, all pass;
+<code>xcodebuild</code> Debug — <code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>;
+<code>xcodebuild</code> Release — <code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>.
+Both reviewers independently re-ran all four and confirmed. One of them also compiled an external consumer
+against the built <code>.framework</code> to prove the Xcode target membership is correct end to end, and
+fuzzed <code>integer(_:at:littleEndian:)</code> against the standard library's
+<code>T(littleEndian:)</code>/<code>T(bigEndian:)</code> over 200 000 random vectors per integer type at
+both optimization levels, with zero mismatches.
+</p>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each performed by a fresh sub-agent with no prior context. Round 1 raised one <em>Medium</em>
+finding, which was fixed; round 2 — explicitly told not to take that fix on trust — confirmed it and reported
+<strong>no Critical, High or Medium findings</strong>, so the loop converged. Neither round found a
+correctness, memory-safety, overflow or crash defect, and both confirmed there are no regressions: the two
+deleted placeholders contained only a license header with <code>import Foundation</code> and an empty test.
+</p>
+
+<p><strong>Round 1</strong></p>
+
+<ul>
+    <li><strong>Medium — <code>subdata(at:count:)</code> returned a non-zero-based slice while its name evoked
+        Foundation's copying, zero-basing <code>subdata(in:)</code>.</strong> Indexing the result from zero traps;
+        the reviewer reproduced the trap. <em>Fixed</em>: renamed to <code>slice(at:count:)</code>, the index-base
+        contract documented at both the extension and method level, and pinned by a new
+        <code>sliceKeepsTheReceiverIndices</code> test. The no-copy behavior was kept deliberately — the reviewer
+        measured slicing to be O(1) — since Milestone 4 depends on it.</li>
+    <li><strong>Low — <code>integer(_:at:littleEndian:)</code> allocates two arrays per call</strong> (measured
+        ~8× slower than an unsafe <code>loadUnaligned</code> variant over 200 000 <code>Int64</code> reads).
+        <em>Deferred.</em></li>
+    <li><strong>Low — the <code>SERError.description</code> test could not detect a mislabeled case</strong>, since
+        nine rows share the same payload and assert only <code>contains</code>. <em>Deferred.</em></li>
+    <li><strong>Low — the leniency-flag list is duplicated between source and tests</strong> with no automated
+        sync. <em>Deferred.</em></li>
+    <li><strong>Info — throw tests assert only the error type, never the case.</strong> <em>Deferred</em>
+        (matches SwiftFITS, where the error type is deliberately not <code>Equatable</code>).</li>
+    <li><strong>Info — <code>localizedDescription</code> does not carry the <code>SER Error:</code> prefix</strong>,
+        only <code>description</code> does. <em>Deferred</em> (identical to SwiftFITS).</li>
+    <li><strong>Info — <code>strictAndLenientPresetsExist</code> is tautological.</strong> <em>Deferred.</em></li>
+    <li><strong>Info — minor gaps in <code>integer</code> sign-handling coverage.</strong> <em>Deferred.</em></li>
+    <li><strong>Info — <code>Imaging/</code> and <code>Video/</code> not created; plan bookkeeping not yet
+        updated.</strong> Folders <em>deferred</em> to Milestones 6/7 by decision; the plan bookkeeping is this
+        entry. <em>Fixed.</em></li>
+</ul>
+
+<p><strong>Round 2</strong></p>
+
+<ul>
+    <li><strong>Low — <code>integerReadsEveryWidth</code> does not cover every width</strong>; <code>Int8</code>,
+        <code>UInt32</code>, <code>UInt64</code> and <code>Int</code>/<code>UInt</code> are never read, and
+        <code>Int8</code> is the one case that would catch a <code>truncatingIfNeeded</code> regression.
+        <em>Deferred.</em></li>
+    <li><strong>Low — the <code>lenient</code> preset's completeness is not structurally enforced</strong>; a ninth
+        flag added to neither hand-written list would pass silently. <em>Deferred.</em></li>
+    <li><strong>Low — per-case error messages are not pinned</strong>; swapping two cases' message prefixes would
+        fail no test. <em>Deferred.</em></li>
+    <li><strong>Low — thrown-error assertions do not distinguish cases or reasons.</strong> <em>Deferred.</em></li>
+    <li><strong>Low — <code>integer(_:at:littleEndian:)</code> allocates two throwaway arrays per call</strong>
+        (measured 2–4×; the suggested early-return fix removes the allocation but duplicates the <code>reduce</code>
+        closure, which the project's conventions also discourage). <em>Deferred.</em></li>
+    <li><strong>Info — <code>Imaging/</code> and <code>Video/</code> not created.</strong> The reviewer agreed with
+        leaving them to Milestones 6/7. <em>Deferred.</em></li>
+    <li><strong>Info — "sign-extended" was the wrong term in the <code>integer</code> doc comment</strong>: the bytes
+        exactly fill the type, so nothing is extended. <em>Fixed.</em></li>
+    <li><strong>Info — column alignment broke in the <code>SERError</code> test table.</strong> <em>Fixed</em>: all
+        twelve rows realigned to the widest case.</li>
+    <li><strong>Info — <code>public extension Data</code> injects the two helpers into every consumer's
+        namespace.</strong> The reviewer explicitly recommended no change, since this is what SwiftFITS does and the
+        project's conventions call for explicit <code>public</code> in library targets. <em>Deferred.</em></li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Approved as implemented, with no changes requested. The deferred <code>Low</code>/<code>Info</code>
+        findings were surfaced at the pause — test hardening (per-case error messages, the duplicated leniency-flag
+        list, thrown-error cases), the missing integer-width coverage, the two array allocations in
+        <code>integer(_:at:littleEndian:)</code>, and <code>localizedDescription</code> carrying no
+        <code>SER Error:</code> prefix — and were accepted as-is rather than fixed.</li>
+</ul>
+</div>
 </div>
 
 <div class="milestone" id="m2">

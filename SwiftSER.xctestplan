@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "9E4C6A2B-1F7D-4C58-A0E6-3B5D9F21C48A",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:SwiftSER.xcodeproj",
+        "identifier" : "052BAC87301A32A800E89E15",
+        "name" : "SwiftSERTests"
+      }
+    }
+  ],
+  "version" : 1
+}
