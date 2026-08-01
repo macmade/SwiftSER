@@ -534,7 +534,7 @@ fixtures only.
 <ul class="toc">
     <li class="phase">Phase 1 — Parsing foundations</li>
     <li><a href="#m1">Milestone 1 — Project scaffolding, errors and parsing options</a> <span class="status status-completed">Completed</span></li>
-    <li><a href="#m2">Milestone 2 — Header parsing</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m2">Milestone 2 — Header parsing</a> <span class="status status-completed">Completed</span></li>
     <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-notstarted">Not started</span></li>
 
     <li class="phase">Phase 2 — Pixel data</li>
@@ -585,7 +585,7 @@ stop and restructure the project. Replaces the placeholder <code>SwiftSER.swift<
 </div>
 
 <div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
-<div class="field"><div class="label">Completed</div><p>2026-07-29</p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-01</p></div>
 <div class="field">
 <div class="label">Implementation notes</div>
 
@@ -730,7 +730,7 @@ deleted placeholders contained only a license header with <code>import Foundatio
 </div>
 
 <div class="milestone" id="m2">
-<h3>Milestone 2 — Header parsing <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 2 — Header parsing <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -757,11 +757,183 @@ frame addressing, so its arithmetic must be overflow-safe.
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-01</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first. Every field, derived quantity and validation rule was checked directly against
+<code>Documentation/SER Doc V3b.pdf</code> rather than against this plan's summary of it. The suite grew from
+23 to 73 tests.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/SERColorID.swift</code> — the eleven identifiers the specification defines, plus an
+        <code>unknown(Int32)</code> case, with <code>numberOfPlanes</code>, <code>isBayer</code>,
+        <code>bayerPattern</code> and the specification's own names as <code>description</code>.</li>
+    <li><code>SwiftSER/SERBayerPattern.swift</code> — the eight patterns, each exposing its four-letter code, an
+        <code>isCMY</code> flag and its 2×2 tile as a nested <code>Filter</code> enum.</li>
+    <li><code>SwiftSER/SERHeader.swift</code> — all thirteen fields at fixed offsets, the derived geometry, the
+        validation rules and a multi-line <code>description</code>.</li>
+    <li><code>SwiftSERTests/SERColorID.swift</code>, <code>SwiftSERTests/SERBayerPattern.swift</code>,
+        <code>SwiftSERTests/SERHeader.swift</code> — one test file per source file.</li>
+    <li><code>SwiftSERTests/TestUtilities.swift</code> — the synthetic header builder. The plan introduces this
+        file in Milestone 8, but Milestones 2, 3 and 4 all need synthetic header bytes, and duplicating the
+        builder three times to consolidate later would be worse. Milestone 8 extends it with frame and trailer
+        builders and the fixture locator.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>An undefined ColorID is preserved, not discarded.</strong> <code>SERColorID</code> carries an
+        <code>unknown(Int32)</code> case rather than being a <code>RawRepresentable</code> enum with a failable
+        initializer, so a file carrying an identifier the specification does not define round-trips losslessly
+        under <code>allowUnknownColorID</code>. It is assumed single-plane, since nine of the eleven defined
+        identifiers are, and that assumption keeps <code>bytesPerPixel</code> at least 1 — so no derived size can
+        collapse to zero.</li>
+    <li><strong>Non-positive dimensions and a negative frame count are rejected unconditionally</strong>, under
+        both presets. This <em>diverges</em> from this milestone's task text, which says each strict validation
+        has a matching leniency flag: the option set has no flag for either, and neither has a lenient reading.
+        A frame with no extent makes every derived size zero or negative, and a negative frame count cannot be
+        clamped, only rejected. Rejecting dimensions early is also what guarantees
+        <code>bytesPerFrame &gt; 0</code> for Milestone 3. Both reviewers agreed on the dimensions; the second
+        called the frame count defensible but noted <code>allowFrameCountMismatch</code> is specified as
+        "clamp to what is actually present", which is arguably what a negative count needs — see the surfaced
+        items below.</li>
+    <li><strong>The file ID is not range-validated</strong>, only the three name fields are. The specification
+        attaches the printable-ASCII constraint to fields 9–11 alone, and the file ID's fixed-content check is
+        strictly stronger. Both reviewers confirmed this reading against the PDF.</li>
+    <li><strong>Name fields end at the first NUL.</strong> Unused characters are filled with <code>0</code>, so
+        everything from the first NUL on is padding and only the content bytes are range-checked.</li>
+    <li><strong>Validation runs on raw bytes, before decoding.</strong> Text admitted by a leniency flag that is
+        not valid UTF-8 decodes to the replacement character, which is documented on both helpers: the flags let
+        the file open, they do not preserve its bytes.</li>
+    <li><strong>Out-of-range depths are forced into a byte band.</strong> A depth outside <code>1...16</code>,
+        admitted only through <code>allowOutOfRangePixelDepth</code>, has no width of its own: at most 8 reads as
+        one byte per plane, anything larger as two. Documented as making the derived geometry untrustworthy for
+        such a file, and pinned by a test.</li>
+    <li><strong>Stored fields keep the format's types</strong> (<code>Int32</code>/<code>Int64</code>) while the
+        derived geometry is <code>Int</code>, continuing Milestone 1's convention. Geometry uses
+        <code>multipliedReportingOverflow</code> and throws rather than trapping.</li>
+    <li><strong><code>Filter</code> is nested inside <code>SERBayerPattern</code></strong> rather than given its
+        own file. Both reviewers endorsed this; it matches <code>FITSSection.Kind</code> and
+        <code>FITSValue.Kind</code> in SwiftFITS.</li>
+</ul>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 73 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>. Both reviewers independently re-ran all four.
+The second reviewer ran 67 mutants across the three source files: all eleven offset shifts, both byte-order
+flips, the Bayer tile swaps and the bytes-per-pixel threshold shift were killed, and it confirmed the
+geometry arithmetic cannot trap or wrap on any input.
+</p>
+
+<div class="note">
+<strong>Still to confirm against a real file.</strong> The appendix notes the derived offsets "must be confirmed
+against a real file during Milestone 2". No <code>Test Files</code> directory exists yet, so they are confirmed
+against the specification and synthetic fixtures only. The second reviewer also raised — explicitly as an
+unverified recollection, not a claim — that some real-world writers may disagree with the specification on field
+4's polarity. Both belong in Milestone 8's real-file validation.
+</div>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each by a fresh sub-agent with no prior context, both verifying against the V3 PDF directly. Round 1
+raised one <em>Medium</em>, which was fixed; round 2 — told not to take that fix on trust, and using mutation
+testing rather than inspection — confirmed it and reported <strong>no Critical, High or Medium findings</strong>,
+so the loop converged. Neither round found a correctness, memory-safety, overflow or crash defect, both confirmed
+all thirteen offsets and all eight Bayer tiles against the specification, and both confirmed no regressions
+against the committed Milestone 1 code.
+</p>
+
+<p><strong>Round 1</strong></p>
+
+<ul>
+    <li><strong>Medium — no test pinned <em>which</em> leniency flag gates each validation.</strong> Every test used
+        only the two presets, so rewiring a validation to the wrong flag left the whole suite green — the reviewer
+        proved it by mutation on three separate validations. <em>Fixed</em>: added a table of the four gated
+        validations plus <code>eachValidationIsWaivedByItsOwnFlagAlone</code> and
+        <code>eachValidationSurvivesEveryOtherFlag</code>. The same mutation was then re-run and is now caught.</li>
+    <li><strong>Low — <code>SERColorID.unknown</code> admits non-canonical values</strong>: a hand-built
+        <code>.unknown(100)</code> does not equal <code>.rgb</code> despite sharing its raw value.
+        <em>Deferred.</em></li>
+    <li><strong>Low — the <code>- Throws:</code> list omitted <code>unsupportedPixelDepth</code>.</strong>
+        <em>Fixed.</em></li>
+    <li><strong>Low — rejecting a negative frame count unconditionally closes off
+        <code>allowFrameCountMismatch</code>.</strong> <em>Deferred</em>; recorded above as a divergence.</li>
+    <li><strong>Low — header offsets duplicated between source and tests.</strong> <em>Deferred</em> — round 2
+        judged the duplication a strength, since the builder derives its layout independently, which is why all
+        eleven offset mutants died.</li>
+    <li><strong>Low — <code>bytesPerPixel</code> silently mis-sizes out-of-range depths, unpinned, and the doc
+        claimed such a depth "falls into the band it is nearest", which is wrong for 32.</strong> <em>Fixed</em>:
+        reworded as a forced band with its consequence stated, and pinned by a test.</li>
+    <li><strong>Low — <code>default:</code> clauses would misclassify a future case.</strong>
+        <em>Deferred.</em></li>
+    <li><strong>Low — three column-alignment violations.</strong> <em>Fixed.</em></li>
+    <li><strong>Info — <code>tile</code> allocates per access; <code>SERColorID</code> and
+        <code>SERBayerPattern</code> are not <code>Hashable</code>.</strong> <em>Deferred</em> to Milestone 5,
+        which is where an inner loop would notice.</li>
+    <li><strong>Info — geometry exposed only as <code>Int32</code>; test-coverage gaps around three documented
+        decisions; the lossy UTF-8 decode; <code>isLittleEndian</code> treating any non-zero value as
+        true.</strong> <em>Deferred.</em></li>
+</ul>
+
+<p><strong>Round 2</strong></p>
+
+<ul>
+    <li><strong>Low — <code>hasTimestampTrailer</code> ignores <code>allowInvalidTimestamps</code>.</strong> A
+        start date with its two undocumented high bits set reads as negative, so the trailer is reported absent
+        even under <code>.lenient</code>, where masking to 62 bits would recover a valid date.
+        <em>Deferred</em> to Milestone 3, which is where the plan puts the 62-bit masking.</li>
+    <li><strong>Low — table-driven tests pass vacuously if their table shrinks.</strong> Emptying
+        <code>gatedValidations</code> left both flag-gating tests green — the very tests added to close round 1's
+        Medium. <em>Fixed</em>: all three tables now assert their full expected contents.</li>
+    <li><strong>Low — <code>Filter.description</code> had no direct test</strong>; four string mutants survived.
+        <em>Fixed.</em></li>
+    <li><strong>Low — the printable range's lower boundary was unpinned</strong>; relaxing it to
+        <code>0x1F</code> survived. <em>Fixed</em>: both boundaries are now tested.</li>
+    <li><strong>Low — three assertions too loose to catch nearby mutants</strong>: the truncation test does not
+        prove the size guard fires (a 177-byte buffer throws either way), the description test pins only five
+        rows, and a case-insensitive file ID comparison survives. <em>Deferred</em> — the same class the
+        Milestone 1 review raised and that was accepted then.</li>
+    <li><strong>Low — <code>SERColorID.unknown</code> admits non-canonical values</strong>, raised independently.
+        <em>Deferred.</em></li>
+    <li><strong>Info — leniency flags admit bytes that the UTF-8 decode then destroys.</strong> <em>Fixed</em> by
+        documenting it on both helpers.</li>
+    <li><strong>Info — the pixel-count overflow guard is unreachable on 64-bit.</strong> <em>Fixed</em> by a
+        comment saying it only fires where <code>Int</code> is 32 bits, so no future reader hunts for a test.</li>
+    <li><strong>Info — <code>Filter</code> declared a redundant <code>Equatable</code> alongside
+        <code>Hashable</code>.</strong> <em>Fixed.</em></li>
+    <li><strong>Info — the two unconditional rejections should be recorded rather than left contradicting the
+        plan's text.</strong> <em>Fixed</em>: recorded above.</li>
+    <li><strong>Info — Milestone 3 will need <code>multipliedReportingOverflow</code> for
+        <code>frameCount × bytesPerFrame</code></strong>, since this milestone legitimately accepts a header whose
+        <code>bytesPerFrame</code> is near <code>Int.max</code>. <em>Carried forward.</em></li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Approved as implemented, with no changes requested. The four deferred <code>Low</code> findings were
+        surfaced at the pause — <code>hasTimestampTrailer</code> ignoring <code>allowInvalidTimestamps</code>,
+        <code>SERColorID.unknown</code> admitting non-canonical values, three assertions too loose to catch
+        nearby mutants, and the <code>default:</code> clauses that would misclassify a future case — and were
+        accepted as-is rather than fixed.</li>
+    <li>The divergence over unconditional rejection of non-positive dimensions and a negative frame count was
+        surfaced explicitly, together with the option of moving the frame-count check into Milestone 3 under
+        <code>allowFrameCountMismatch</code>. Accepted as implemented; the check stays in the header.</li>
+</ul>
+</div>
 </div>
 
 <div class="milestone" id="m3">
