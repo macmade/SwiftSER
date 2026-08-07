@@ -871,4 +871,356 @@ struct Test_SERFile
         #expect( description.contains( "Start Time:        \( start )" ) )
         #expect( description.contains( "Start Time UTC:    \( startUTC )" ) )
     }
+
+    // MARK: - Debayering
+
+    /// The error a stub implementation throws, so a propagated one can be told
+    /// apart from anything SwiftSER raises itself.
+    struct DelegateError: Error
+    {}
+
+    /// A ``SERDebayering`` a test can steer, and afterwards ask what it was
+    /// given.
+    ///
+    /// A class rather than a struct, since the protocol's requirements are
+    /// non-mutating and a test needs the record of the calls the file made.
+    final class Delegate: SERDebayering
+    {
+        /// Whether ``supports(pattern:)`` claims the pattern it is asked about.
+        let accepts: Bool
+
+        /// What ``debayer(mosaic:width:height:pattern:)`` returns, or `nil` for
+        /// it to throw ``DelegateError`` instead.
+        let output: ( ( Int, Int ) -> [ Double ] )?
+
+        /// The patterns ``supports(pattern:)`` was asked about.
+        private( set ) var asked: [ SERBayerPattern ] = []
+
+        /// What ``debayer(mosaic:width:height:pattern:)`` was called with.
+        private( set ) var calls: [ ( mosaic: [ Double ], width: Int, height: Int, pattern: SERBayerPattern ) ] = []
+
+        /// Creates a stub implementation.
+        ///
+        /// - Parameters:
+        ///   - accepts: Whether it claims the patterns it is asked about.
+        ///   - output:  What it returns for a pattern it claims, given the
+        ///              image's width and height, or `nil` for it to throw.
+        init( accepts: Bool, output: ( ( Int, Int ) -> [ Double ] )? )
+        {
+            self.accepts = accepts
+            self.output  = output
+        }
+
+        /// Whether this implementation claims the pattern, recording the
+        /// question.
+        ///
+        /// - Parameter pattern: The mosaic laid over the sensor.
+        /// - Returns: What the stub was created with.
+        func supports( pattern: SERBayerPattern ) -> Bool
+        {
+            self.asked.append( pattern )
+
+            return self.accepts
+        }
+
+        /// Returns what the stub was created with, recording the call.
+        ///
+        /// - Parameters:
+        ///   - mosaic:  The frame's samples.
+        ///   - width:   The image's width, in pixels.
+        ///   - height:  The image's height, in pixels.
+        ///   - pattern: The mosaic laid over the sensor.
+        /// - Returns: What the stub was created with.
+        /// - Throws: ``DelegateError`` when the stub was created with no output.
+        func debayer( mosaic: [ Double ], width: Int, height: Int, pattern: SERBayerPattern ) throws -> [ Double ]
+        {
+            self.calls.append( ( mosaic, width, height, pattern ) )
+
+            guard let output = self.output
+            else
+            {
+                throw DelegateError()
+            }
+
+            return output( width, height )
+        }
+    }
+
+    /// Every color ID carrying a mosaic, with the pattern it names.
+    static let bayerColorIDs: [ ( colorID: Int32, pattern: SERBayerPattern ) ] = [
+        (  8, .rggb ),
+        (  9, .grbg ),
+        ( 10, .gbrg ),
+        ( 11, .bggr ),
+        ( 16, .cyym ),
+        ( 17, .ycmy ),
+        ( 18, .ymcy ),
+        ( 19, .myyc ),
+    ]
+
+    /// Every color ID that is not a mosaic, with the number of planes it holds.
+    static let plainColorIDs: [ ( colorID: Int32, planes: Int ) ] = [
+        (   0, 1 ),
+        ( 100, 3 ),
+        ( 101, 3 ),
+    ]
+
+    /// A one-frame 4×4 8-bit file of the given color ID, whose bytes count from
+    /// one.
+    ///
+    /// A single-plane file therefore holds the mosaic `1 ... 16`, which is what
+    /// the built-in implementation's own tests are written against.
+    ///
+    /// - Parameter colorID: The raw color ID the header declares.
+    /// - Returns: The parsed file.
+    /// - Throws: Any error raised while parsing.
+    static func fileDeclaring( colorID: Int32 ) throws -> SERFile
+    {
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID     = colorID
+        fields.imageWidth  = 4
+        fields.imageHeight = 4
+        fields.frameCount  = 1
+
+        let frame = ( 0 ..< fields.bytesPerFrame ).map { UInt8( truncatingIfNeeded: $0 + 1 ) }
+
+        return try SERFile( data: TestUtilities.File( header: fields, frames: [ frame ], timestamps: nil ).data, options: .strict )
+    }
+
+    @Test
+    func everyColorIDTableIsListed() async throws
+    {
+        // The tests below iterate these tables, so a row dropped from one would
+        // leave them passing while proving less. Together they are every color
+        // ID the specification defines.
+        #expect( Self.bayerColorIDs.map { $0.colorID } == [ 8, 9, 10, 11, 16, 17, 18, 19 ] )
+        #expect( Self.plainColorIDs.map { $0.colorID } == [ 0, 100, 101 ] )
+    }
+
+    // MARK: - Debayering defaults
+
+    @Test
+    func aFileDebayersWithTheBuiltInImplementationByDefault() async throws
+    {
+        let file = try Self.fileDeclaring( colorID: 8 )
+
+        #expect( file.debayering            == nil )
+        #expect( file.debayerFailurePolicy  == .fallBackToBuiltIn )
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB )
+    }
+
+    @Test
+    func everyMosaicColorIDReachesTheDebayerer() async throws
+    {
+        try Self.bayerColorIDs.forEach
+        {
+            let delegate = Delegate( accepts: false, output: nil )
+            let file     = try Self.fileDeclaring( colorID: $0.colorID )
+
+            file.debayering = delegate
+
+            let rgb = try file.debayeredSamples( ofFrame: 0 )
+
+            #expect( delegate.asked == [ $0.pattern ], "color ID \( $0.colorID ) asks about the wrong pattern" )
+            #expect( rgb.count      == 4 * 4 * 3,      "color ID \( $0.colorID ) produces the wrong sample count" )
+        }
+    }
+
+    // MARK: - Frames that carry no mosaic
+
+    @Test
+    func aFrameThatIsNotAMosaicComesBackUnchanged() async throws
+    {
+        try Self.plainColorIDs.forEach
+        {
+            let delegate = Delegate( accepts: true, output: { _, _ in [] } )
+            let file     = try Self.fileDeclaring( colorID: $0.colorID )
+
+            file.debayering = delegate
+
+            let samples = try file.debayeredSamples( ofFrame: 0 )
+
+            #expect( samples          == ( try file.frame( at: 0 ).samples ), "color ID \( $0.colorID ) alters its samples" )
+            #expect( samples.count    == 4 * 4 * $0.planes,                   "color ID \( $0.colorID ) changes its plane count" )
+            #expect( delegate.asked.isEmpty,                                  "color ID \( $0.colorID ) consults the debayering" )
+            #expect( delegate.calls.isEmpty,                                  "color ID \( $0.colorID ) is debayered" )
+        }
+    }
+
+    @Test
+    func rejectsADebayerRequestForAnOutOfRangeFrame() async throws
+    {
+        let file = try Self.fileDeclaring( colorID: 8 )
+
+        #expect( throws: SERError.self )
+        {
+            try file.debayeredSamples( ofFrame: 1 )
+        }
+
+        #expect( throws: SERError.self )
+        {
+            try file.debayeredSamples( ofFrame: -1 )
+        }
+    }
+
+    // MARK: - Debayering delegation
+
+    @Test
+    func aDelegateThatClaimsThePatternIsUsed() async throws
+    {
+        let marker   = [ Double ]( repeating: 42, count: 4 * 4 * 3 )
+        let delegate = Delegate( accepts: true, output: { _, _ in marker } )
+        let file     = try Self.fileDeclaring( colorID: 8 )
+
+        file.debayering = delegate
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == marker )
+        #expect( delegate.calls.count                    == 1 )
+    }
+
+    @Test
+    func aDelegateIsHandedTheFramesSamplesAndGeometry() async throws
+    {
+        let delegate = Delegate( accepts: true, output: { width, height in [ Double ]( repeating: 0, count: width * height * 3 ) } )
+        let file     = try Self.fileDeclaring( colorID: 9 )
+
+        file.debayering = delegate
+
+        _ = try file.debayeredSamples( ofFrame: 0 )
+
+        let call = try #require( delegate.calls.first )
+
+        #expect( call.mosaic  == ( try file.frame( at: 0 ).samples ) )
+        #expect( call.width   == 4 )
+        #expect( call.height  == 4 )
+        #expect( call.pattern == .grbg )
+    }
+
+    @Test
+    func aDelegateThatDeclinesFallsBackWhateverThePolicy() async throws
+    {
+        // Declining is part of the protocol, not a failure, so the policy has
+        // no say in it.
+        try Test_SERDebayerFailurePolicy.policies.forEach
+        {
+            let delegate = Delegate( accepts: false, output: { _, _ in [] } )
+            let file     = try Self.fileDeclaring( colorID: 8 )
+
+            file.debayering           = delegate
+            file.debayerFailurePolicy = $0.policy
+
+            #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB, "\( $0.policy ) does not fall back" )
+            #expect( delegate.asked                          == [ .rggb ] )
+            #expect( delegate.calls.isEmpty,                  "\( $0.policy ) debayers through an implementation that declined" )
+        }
+    }
+
+    @Test
+    func aDelegateThatThrowsFallsBackUnderTheDefaultPolicy() async throws
+    {
+        let delegate = Delegate( accepts: true, output: nil )
+        let file     = try Self.fileDeclaring( colorID: 8 )
+
+        file.debayering = delegate
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB )
+        #expect( delegate.calls.count                    == 1 )
+    }
+
+    @Test
+    func aDelegateThatThrowsIsReportedUnderThePropagatePolicy() async throws
+    {
+        let delegate = Delegate( accepts: true, output: nil )
+        let file     = try Self.fileDeclaring( colorID: 8 )
+
+        file.debayering           = delegate
+        file.debayerFailurePolicy = .propagate
+
+        // The delegate's own error, not one SwiftSER substituted for it.
+        #expect( throws: DelegateError.self )
+        {
+            try file.debayeredSamples( ofFrame: 0 )
+        }
+    }
+
+    @Test
+    func aDelegateReturningTheWrongSampleCountIsAFailure() async throws
+    {
+        // A result of the wrong length cannot be interpreted as an image, so it
+        // is a failure like any other and answers to the same policy.
+        let file = try Self.fileDeclaring( colorID: 8 )
+
+        file.debayering = Delegate( accepts: true, output: { width, height in [ Double ]( repeating: 0, count: width * height ) } )
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB )
+
+        file.debayerFailurePolicy = .propagate
+
+        #expect( throws: SERError.self )
+        {
+            try file.debayeredSamples( ofFrame: 0 )
+        }
+    }
+
+    @Test
+    func aDelegateIsConsultedOnceForEveryFrameItDebayers() async throws
+    {
+        // The properties are read at the moment a frame is debayered, so a
+        // delegate installed after a file is opened still takes over, and one
+        // removed again gives the work back.
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID     = 8
+        fields.imageWidth  = 4
+        fields.imageHeight = 4
+        fields.frameCount  = 2
+
+        let frames   = [ ( 0 ..< 16 ).map { UInt8( $0 + 1 ) }, ( 0 ..< 16 ).map { UInt8( $0 + 17 ) } ]
+        let file     = try SERFile( data: TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data, options: .strict )
+        let marker   = [ Double ]( repeating: 7, count: 4 * 4 * 3 )
+        let delegate = Delegate( accepts: true, output: { _, _ in marker } )
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB )
+
+        file.debayering = delegate
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == marker )
+        #expect( try file.debayeredSamples( ofFrame: 1 ) == marker )
+
+        file.debayering = nil
+
+        #expect( try file.debayeredSamples( ofFrame: 0 ) == Test_SERBilinearDebayering.fourByFourRGGB )
+        #expect( delegate.calls.count                    == 2 )
+    }
+
+    @Test
+    func debayersASixteenBitMosaic() async throws
+    {
+        // The mosaic reaches the debayering as `samples` decodes it, so a 16-bit
+        // capture arrives as the values it stores rather than as its bytes.
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID            = 8
+        fields.imageWidth         = 2
+        fields.imageHeight        = 2
+        fields.pixelDepthPerPlane = 16
+        fields.littleEndian       = 1
+        fields.frameCount         = 1
+
+        let frame = [ UInt8 ]( [ 0x00, 0x80, 0xFF, 0xFF, 0x01, 0x00, 0x02, 0x00 ] )
+        let file  = try SERFile( data: TestUtilities.File( header: fields, frames: [ frame ], timestamps: nil ).data, options: .strict )
+
+        // The mosaic is 32768, 65535 / 1, 2 — red at the first site, blue at the
+        // last, green at the other two, whose average is 32768. Red and blue
+        // are sampled once each, so they spread over the whole tile.
+        let rgb = try file.debayeredSamples( ofFrame: 0 )
+
+        #expect( rgb == [
+            32768, 32768, 2,
+            32768, 65535, 2,
+            32768,     1, 2,
+            32768, 32768, 2,
+        ] )
+    }
 }

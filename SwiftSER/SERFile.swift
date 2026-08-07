@@ -38,8 +38,9 @@ import Foundation
 /// as timestamps. That follows from the format itself, which offers no other
 /// way to locate the trailer.
 ///
-/// The parsed timestamps are cached on first access, so a file is not safe to
-/// use from several threads at once and is not `Sendable`.
+/// The parsed timestamps are cached on first access, and the two debayering
+/// properties are writable, so a file is not safe to use from several threads at
+/// once and is not `Sendable`.
 public class SERFile: CustomStringConvertible
 {
     /// The number of bytes one timestamp occupies in the trailer.
@@ -74,6 +75,30 @@ public class SERFile: CustomStringConvertible
     /// length and honours ``SERParsingOptions/allowInvalidTimestamps`` when
     /// reading that start date.
     public let hasTimestampTrailer: Bool
+
+    /// The implementation a mosaic frame is debayered through, or `nil` for
+    /// SwiftSER's own ``SERBilinearDebayering``.
+    ///
+    /// Read at the moment a frame is debayered, so one installed after the file
+    /// was opened takes over from the next call on, and setting it back to
+    /// `nil` gives the work back to the built-in implementation.
+    ///
+    /// A pattern the implementation declines through
+    /// ``SERDebayering/supports(pattern:)`` goes to the built-in one anyway, so
+    /// setting this never costs a file its image.
+    ///
+    /// - Important: The file holds the implementation strongly. A class-based
+    ///   one that holds the file back keeps both alive; the protocol describes a
+    ///   stateless algorithm rather than a classic delegate, and does not need
+    ///   the file to do its work.
+    public var debayering: SERDebayering?
+
+    /// What to do when ``debayering`` fails.
+    ///
+    /// Defaults to ``SERDebayerFailurePolicy/fallBackToBuiltIn``, so a
+    /// consumer's implementation failing costs image quality rather than the
+    /// image.
+    public var debayerFailurePolicy = SERDebayerFailurePolicy.fallBackToBuiltIn
 
     /// The file's complete bytes.
     private let data: Data
@@ -501,6 +526,118 @@ public class SERFile: CustomStringConvertible
         // through `timestamps`, which would parse the whole trailer — a capture
         // of a hundred thousand frames would pay for all of them to look at one.
         return SERFrame( index: index, header: self.header, timestamp: self.timestamp( ofFrame: index ), rawData: self.frameData( at: offset ) )
+    }
+
+    /// A frame's samples, with any color filter mosaic resolved to RGB.
+    ///
+    /// The frames of a mosaic file are single-plane, and this is what turns one
+    /// into three interleaved channels: through ``debayering`` when one is
+    /// installed and claims the pattern, and through ``SERBilinearDebayering``
+    /// otherwise.
+    ///
+    /// A frame that carries no mosaic has nothing to resolve and comes back
+    /// exactly as ``SERFrame/samples`` decoded it — one plane for
+    /// ``SERColorID/mono``, three for ``SERColorID/rgb`` and ``SERColorID/bgr``,
+    /// which are already interleaved RGB and were reordered on decode. The
+    /// result therefore holds three samples per pixel for a mosaic file and
+    /// ``SERHeader/numberOfPlanes`` for any other.
+    ///
+    /// Values are the ones the file stores, not rescaled — see
+    /// ``SERFrame/samples`` and ``SERHeader/sampleRange``. Nothing is cached, so
+    /// the result is worth holding on to when it is needed more than once.
+    ///
+    /// - Note: Unlike addressing a frame, this materializes it. The result of a
+    ///   mosaic frame is 24 bytes per pixel, and debayering it needs about as
+    ///   much again while it runs — worth knowing when sizing a pipeline over a
+    ///   capture the rest of the library never loads.
+    ///
+    /// - Parameter index: The frame's index, in `0 ..< frameCount`.
+    /// - Returns: The frame's samples, interleaved and row-major.
+    /// - Throws: ``SERError/frameIndexOutOfRange(index:count:)`` if the index
+    ///           falls outside the frames the file holds;
+    ///           ``SERError/invalidFrameData(reason:)`` if the frame's bytes
+    ///           cannot be decoded; ``SERError/debayerError(reason:)`` if the
+    ///           built-in implementation rejects the geometry, or if
+    ///           ``debayering`` returned a result of the wrong length under
+    ///           ``SERDebayerFailurePolicy/propagate``; or whatever
+    ///           ``debayering`` raised, under that same policy. Under the
+    ///           default ``SERDebayerFailurePolicy/fallBackToBuiltIn`` a
+    ///           failing ``debayering`` throws nothing at all: the built-in
+    ///           implementation answers in its place.
+    public func debayeredSamples( ofFrame index: Int ) throws -> [ Double ]
+    {
+        let samples = try self.frame( at: index ).samples
+
+        guard let pattern = self.header.bayerPattern
+        else
+        {
+            return samples
+        }
+
+        return try self.debayered( mosaic: samples, pattern: pattern )
+    }
+
+    /// Debayers a mosaic through whichever implementation answers for it.
+    ///
+    /// - Parameters:
+    ///   - mosaic:  The frame's samples, one per pixel.
+    ///   - pattern: The mosaic laid over the sensor.
+    /// - Returns: Interleaved RGB, row-major, three samples per pixel.
+    /// - Throws: ``SERError/debayerError(reason:)`` if the built-in
+    ///           implementation rejects the geometry, or if ``debayering``
+    ///           failed under ``SERDebayerFailurePolicy/propagate`` by returning
+    ///           a result of the wrong length; or whatever ``debayering`` raised
+    ///           under that same policy.
+    private func debayered( mosaic: [ Double ], pattern: SERBayerPattern ) throws -> [ Double ]
+    {
+        let width   = Int( self.header.imageWidth )
+        let height  = Int( self.header.imageHeight )
+        let builtIn = SERBilinearDebayering()
+
+        // Declining is not failing: a pattern nobody claims is the built-in
+        // implementation's, whatever the failure policy says.
+        guard let debayering = self.debayering, debayering.supports( pattern: pattern )
+        else
+        {
+            return try builtIn.debayer( mosaic: mosaic, width: width, height: height, pattern: pattern )
+        }
+
+        do
+        {
+            // Checked against the length the protocol documents, which is the
+            // geometry's rather than the mosaic's, even though a mosaic holds
+            // exactly one sample per pixel. Neither multiplication can overflow
+            // for a geometry the header accepted, but both are checked anyway,
+            // since nothing here re-derives that.
+            let ( pixels,   pixelOverflow  ) = width.multipliedReportingOverflow( by: height )
+            let ( expected, sampleOverflow ) = pixels.multipliedReportingOverflow( by: SERBilinearDebayering.planeCount )
+
+            guard pixelOverflow == false, sampleOverflow == false
+            else
+            {
+                throw SERError.debayerError( reason: "A \( width )x\( height ) image of \( SERBilinearDebayering.planeCount ) planes overflows" )
+            }
+
+            let samples = try debayering.debayer( mosaic: mosaic, width: width, height: height, pattern: pattern )
+
+            guard samples.count == expected
+            else
+            {
+                throw SERError.debayerError( reason: "The debayering returned \( samples.count ) samples for a \( width )x\( height ) image" )
+            }
+
+            return samples
+        }
+        catch
+        {
+            guard self.debayerFailurePolicy == .fallBackToBuiltIn
+            else
+            {
+                throw error
+            }
+
+            return try builtIn.debayer( mosaic: mosaic, width: width, height: height, pattern: pattern )
+        }
     }
 
     /// The bytes a frame occupies.

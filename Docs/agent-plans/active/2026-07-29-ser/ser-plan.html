@@ -539,7 +539,7 @@ fixtures only.
 
     <li class="phase">Phase 2 — Pixel data</li>
     <li><a href="#m4">Milestone 4 — Raw frame access and sample decoding</a> <span class="status status-completed">Completed</span></li>
-    <li><a href="#m5">Milestone 5 — Debayering: patterns, built-in implementation and delegation</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m5">Milestone 5 — Debayering: patterns, built-in implementation and delegation</a> <span class="status status-completed">Completed</span></li>
 
     <li class="phase">Phase 3 — Output</li>
     <li><a href="#m6">Milestone 6 — CGImage export</a> <span class="status status-notstarted">Not started</span></li>
@@ -1424,7 +1424,7 @@ both confirmed no regressions: the existing public API is unchanged and all 126 
 </div>
 
 <div class="milestone" id="m5">
-<h3>Milestone 5 — Debayering: patterns, built-in implementation and delegation <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 5 — Debayering: patterns, built-in implementation and delegation <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -1464,11 +1464,290 @@ individual patterns, or fail, with SwiftSER's own implementation as the safety n
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-08</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first, in three cycles — the failure policy, then the built-in implementation with its
+delegation protocol, then the wiring on <code>SERFile</code> — each written as a test that was run and observed
+to fail before the API existed. The suite grew from 170 to 201 tests.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/SERDebayering.swift</code> — the delegation protocol, exactly as the plan specifies it.</li>
+    <li><code>SwiftSER/SERDebayerFailurePolicy.swift</code> — <code>fallBackToBuiltIn</code> and
+        <code>propagate</code>.</li>
+    <li><code>SwiftSER/SERBilinearDebayering.swift</code> — the built-in implementation: the two kernels, the
+        masked-plane convolution with both paths, the edge handling and the complementary transform.</li>
+    <li><code>SwiftSERTests/SERDebayerFailurePolicy.swift</code> and
+        <code>SwiftSERTests/SERBilinearDebayering.swift</code>. The protocol has no test file of its own: it
+        declares no behavior, and its contract is only observable through <code>SERFile</code>, which is where
+        those tests live.</li>
+    <li><code>SwiftSER/SERFile.swift</code> gained <code>debayering</code>, <code>debayerFailurePolicy</code>
+        and <code>debayeredSamples(ofFrame:)</code>;
+        <code>SwiftSERTests/SERFile.swift</code> gained the delegation tests.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>Edges are handled by renormalizing the weights, not by clamping coordinates.</strong> This
+        <em>diverges</em> from this milestone's task text, which says to clamp coordinates to the image bounds —
+        as did <a href="#appendix-kernels">Appendix — Bilinear kernels</a>, until it was amended on review.
+        Clamping replicates the edge <em>site</em>, which carries the tile parity of the row or
+        column it was copied from rather than the one it stands in for, so the copy holds no sample of the channel
+        being interpolated: in a four-row RGGB frame, the red plane at site (3,0) reads row 4 as row 3, finds no
+        red there, and comes out at half its correct value. The first reviewer reproduced that, and measured the
+        general shape of the fault — on a flat field of 40, clamping produces 60 and 90 at the top-left corner
+        instead of 40, a bright halo all round the border. What the plan actually asks for is that border sites
+        interpolate from the same colors interior sites see, and that is what is implemented: the kernel weights
+        are summed as they are applied over the in-bounds sites that really carry the channel, and the result
+        divided by that sum. It is the same average, over the samples that exist.</li>
+    <li><strong>The interior needs no such division, which is what lets Accelerate own it.</strong> A site with a
+        whole 3×3 neighbourhood always finds a total weight of exactly one — for both kernels, all eight patterns
+        and all four tile parities — so <code>vDSP_f3x3D</code>'s plain convolution is already the right answer
+        there. It zeroes its own one-pixel output border, which is exactly the ring the scalar routine has to
+        compute anyway, so the two divide the plane between them with nothing left over. Both reviewers verified
+        the weight-of-one claim independently, one of them re-deriving the kernels from the appendix rather than
+        reading the implementation's constants.</li>
+    <li><strong>Only the lower bound of the complementary transform is clamped.</strong> Each interpolated C, Y
+        and M value is a weighted average of the frame's samples, which are unsigned, so none of the three
+        exceeds the largest sample present and no half-sum of two of them less a third can either. Subtracting
+        can take a noisy pixel below zero, which is not a color, and that is the only bound that needs
+        enforcing. The unsignedness is load-bearing and is now stated where the argument is made.</li>
+    <li><strong>The two paths are byte-identical, not merely close.</strong> Every non-zero tap is a stored
+        sample times ¼, ½ or 1 — exactly representable — and at most nine are summed, so no ordering of the
+        accumulation can differ. That is what makes the equivalence test an equality rather than a tolerance.</li>
+    <li><strong>The eight patterns are pinned on a 2×2 mosaic, the kernels and edges on a 4×4 one.</strong> A
+        2×2 mosaic is exactly one tile, so each of the four sites carries a different filter and a pattern wired
+        to the wrong tile cannot produce another pattern's answer. The 4×4 case is where the kernels actually
+        average, and its hand-computed expectation covers the interior and the border ring alike.</li>
+    <li><strong>Debayering is exposed on <code>SERFile</code>, not on <code>SERFrame</code></strong>, since that
+        is where the configuration lives. <code>SERFrame</code> stays a <code>Sendable</code> value holding no
+        reference to its file, which it would have to gain to reach the delegate.</li>
+    <li><strong>A frame that is not a mosaic comes back unchanged.</strong> <code>debayeredSamples(ofFrame:)</code>
+        returns MONO's single plane and RGB/BGR's three exactly as <code>SERFrame/samples</code> decoded them, so
+        Milestone 6 has one call to make whatever the file is, rather than a branch to get wrong.</li>
+    <li><strong>A delegate's result of the wrong length is a failure like any other</strong>, and answers to the
+        same policy. Declining through <code>supports(pattern:)</code> is not a failure and always falls back,
+        whatever the policy says.</li>
+    <li><strong>One plane buffer serves all three channels</strong>, and the masked copy of the mosaic is built
+        inside the accelerated convolution rather than by its caller, so it never exists on the scalar path — the
+        scalar routine consults the pattern itself and reads the mosaic directly. Both were done on review; see
+        the memory finding below.</li>
+</ul>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 201 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>; <code>xcodebuild docbuild</code> — clean. Both
+reviewers independently re-ran all of these. Nineteen mutations were run before the first review and 23 in the
+second round; every one that changes behavior was killed. The second reviewer also compared both paths against a
+reference it wrote from the textbook definition — no kernels, no masking, no convolution — over
+<strong>8 patterns × 18×18 geometries × both paths, 5 184 cases</strong>, with bit-exact agreement; the first did
+the same over the 169 geometries from 1×1 to 13×13. Neither found a trap, an out-of-bounds read or a division by
+zero, including on NaN, ±∞ and <code>greatestFiniteMagnitude</code> input.
+</p>
+
+<p>
+Both reviewers also proved the Xcode registration rather than reading it: <code>nm -gU</code> on the built
+framework binary finds the debayering symbols, and the generated <code>.swiftinterface</code> exposes exactly the
+intended public surface, with the <code>accelerated:</code> overload and <code>planeCount</code> correctly
+internal.
+</p>
+
+<div class="scroll">
+<table>
+    <tr><th>Measurement (Release)</th><th>Value</th></tr>
+    <tr><td>3840×2160 RGGB, whole <code>debayer</code> call</td><td>~78 ms</td></tr>
+    <tr><td>3840×2160 CYYM, whole <code>debayer</code> call</td><td>~90 ms</td></tr>
+    <tr><td>2048×1536, accelerated versus scalar</td><td>19 ms / 106 ms (5.6×)</td></tr>
+    <tr><td>4096×4096 peak footprint, accelerated</td><td>640 MB over a 128 MB mosaic</td></tr>
+    <tr><td>4096×4096 peak footprint, scalar</td><td>512 MB, from 640 MB before the memory fix</td></tr>
+</table>
+</div>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each by a fresh sub-agent with no prior context, both verifying against the V3 PDF and the SDK
+headers and using differential fuzzing and mutation testing rather than inspection. Round 1 raised two
+<em>Medium</em> findings, both fixed; round 2 — told to take none of those fixes on trust — confirmed all nine of
+them and reported <strong>no Critical, High or Medium findings</strong>, so the loop converged. Neither round
+found a correctness, memory-safety, overflow or crash defect; both confirmed the debayering maths for all eight
+patterns, both kernels and the complementary transform; both endorsed the two divergences above after
+reproducing the fault the plan's own prescription would have caused; and both confirmed no regressions — the
+existing public API is unchanged and all 170 pre-existing tests still pass.
+</p>
+
+<p><strong>Round 1 — two Medium findings, both fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — a test subscripted the debayered result unguarded</strong>, against a convention this
+        project adopted in Milestone 3 precisely because a trap takes the whole run down. The reviewer proved the
+        consequence by mutation: a <code>debayer</code> returning one sample fewer killed the process with
+        <code>Fatal error: Index out of range</code> and reported nothing for the other 200 tests.
+        <em>Fixed</em> with <code>try #require</code> on the count; re-running the same mutation now produces 121
+        clean failures instead of a crash.</li>
+    <li><strong>Medium — peak memory of five times the frame's sample count, six large heap allocations per
+        frame, and an in-code comment that accounted for the planes but not the masked copy.</strong>
+        <em>Fixed</em>: one plane buffer now serves all three channels, and the masked mosaic is built inside the
+        convolution through <code>withUnsafeTemporaryAllocation</code>, so it exists only where Accelerate needs
+        it. Measured on a 4096×4096 frame, the scalar peak fell from 640 MB to 512 MB. The accelerated peak is
+        unchanged and inherent: the result, the convolution's output plane and its masked input are necessarily
+        live together. Cutting it further would need horizontal striping — see the surfaced items.</li>
+    <li><strong>Low/Info</strong> — a test named for the accelerated path exercised the scalar one
+        (<em>fixed</em>); the documented condition for a channel reading zero was wrong, since a mosaic one pixel
+        wide or high also loses one (<em>fixed</em>); the complementary transform's argument omitted the
+        unsignedness it rests on (<em>fixed</em>); <code>SERFile</code>'s thread-safety note named only the
+        timestamp cache and not the two new writable properties (<em>fixed</em>); the delegate's result was
+        checked against the mosaic's length rather than the geometry the protocol documents (<em>fixed</em>);
+        the file's strong hold on its debayering was undocumented (<em>fixed</em>); the pattern table was
+        ordered CYYM-first, unlike every other table in the project (<em>fixed</em>); and nothing recorded that
+        <code>vDSP_f3x3D</code> correlates rather than convolves, which is harmless only because both kernels
+        are symmetric under a half turn (<em>fixed</em>).</li>
+</ul>
+
+<p><strong>Round 2 — no Critical, High or Medium findings</strong></p>
+
+<ul>
+    <li><strong>Low — nothing pins that <code>accelerated: false</code> really selects the scalar path.</strong>
+        Ignoring the flag leaves all 201 tests green, since the two paths are required to be indistinguishable by
+        output. It is the mirror of the gap Milestone 4 recorded and accepted, but the reviewer notes the
+        consequence is not symmetric: this one leaves untested the only implementation that exists on a platform
+        with no Accelerate. It is narrower than that in practice — every geometry below 3×3 takes the scalar
+        routine unconditionally, and those are pinned by hand-computed expectations, so what goes uncovered is
+        the scalar <em>interior</em> of a 3×3-or-larger frame, and only on a machine that has Accelerate.
+        <em>Deferred</em>, consistent with Milestone 4; closing it would mean production code existing solely to
+        be observed.</li>
+    <li><strong>Info — an overflowing geometry was reported as a delegate length error</strong>, blaming the
+        delegate for a geometry fault. Unreachable, since the header rejects such a geometry at parse time.
+        <em>Fixed</em>: the two overflow flags now have their own guard and their own message, and the delegate
+        is no longer called for a geometry that cannot be validated.</li>
+    <li><strong>Info — <code>debayeredSamples</code>' <code>- Throws:</code> read as if a delegate failure always
+        surfaced</strong>, attaching the policy caveat to only the last clause. <em>Fixed</em>: it now says
+        plainly that under the default policy nothing is thrown at all.</li>
+    <li><strong>Info — the memory cost was recorded only in a source comment</strong>, while
+        <code>SERFile</code>'s own documentation advertises that a multi-gigabyte capture is never loaded.
+        <em>Fixed</em> with a note on <code>debayeredSamples</code>: unlike addressing a frame, this materializes
+        one.</li>
+    <li><strong>Info — NaN and infinity are handled inconsistently between the two paths</strong>, since
+        <code>max(0, .nan)</code> returns zero, so a NaN is swallowed on the complementary path and propagates on
+        the additive one. Unreachable through the library, whose samples are widened from unsigned integers.
+        <em>Fixed</em> by documenting that the mosaic is assumed finite as well as non-negative.</li>
+    <li><strong>Info — the kernel choice had no stated behavior outside the one-or-two case.</strong> Correct
+        today for all eight tiles, and <code>SERBayerPattern</code> is closed. <em>Fixed</em> by stating the
+        invariant where the choice is made.</li>
+    <li><strong>Info — the interleave scatter is a scalar loop</strong> in a file that otherwise reaches for
+        Accelerate: <code>cblas_dcopy</code> measured ~5.1 ms against ~8.3 ms over 8.3 million elements, about
+        12% of a 3840×2160 call across the three channels. <em>Deferred</em> — a modest win against a clearly
+        correct loop, and worth measuring in place rather than assuming.</li>
+    <li><strong>Info — the plan still prescribes clamping</strong>, in this milestone's task list and in
+        <a href="#appendix-kernels">Appendix — Bilinear kernels</a>, with the rationale for not clamping living
+        only in the source. Since clamping is demonstrably wrong, a future reader reconciling code against plan
+        could restore the bug. The divergence is now recorded in the notes above; whether to amend the appendix
+        itself is <em>surfaced</em> for decision.</li>
+    <li><strong>Explicitly cleared by round 2</strong>: the reused plane buffer is fully overwritten on every
+        path and geometry — and belt-and-braces, since the scalar ring covers the whole border independently of
+        <code>vDSP_f3x3D</code> zeroing its own; the <code>withUnsafeTemporaryAllocation</code> buffer's length
+        equals its capacity, every element is initialized before Accelerate reads it, nothing is read past the
+        end, and the absent deinitialization is correct for a trivial type; reading the mosaic instead of a
+        masked plane in the scalar routine is identical everywhere; and the hand-computed expectations are
+        genuinely hand-computed, not transcriptions of the implementation's output.</li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Amend the appendix if it needs amending.
+        <br><br>
+        <em>Addressed.</em> <a href="#appendix-kernels">Appendix — Bilinear kernels</a> closed by prescribing
+        that coordinates are clamped to the image bounds, which is the one instruction in the plan shown to be
+        wrong. It now describes the weight renormalization the implementation uses, why clamping cannot give a
+        border site the neighbourhood it is missing, and why the interior needs no division at all — which is
+        what lets <code>vDSP_f3x3D</code> compute it unaided. This milestone's task list was deliberately left
+        as written, so the divergence keeps its origin; the implementation notes above are where it is
+        recorded.</li>
+
+    <li>Asked what the missing coverage of the scalar convolution path actually amounts to. Answered: the two
+        implementations are required to return identical values, which is itself asserted, so no test that looks
+        at values can tell which one ran — if the <code>accelerated</code> flag were ignored, every test would
+        still pass while only Accelerate was ever exercised. What that would really cost is narrower than it
+        sounds: the convolution declines to run below 3×3, so every small geometry takes the scalar routine
+        whatever the flag says and is pinned by hand-computed values for all eight patterns, and the border ring
+        of every image at every size is scalar too. What goes uncovered is the scalar routine's handling of the
+        <em>interior</em> of a 3×3-or-larger frame, and only on a machine that has Accelerate — on one that does
+        not, the flag is irrelevant and the whole suite exercises the scalar path. Closing it means an internal
+        seam existing only to be observed. No change made.</li>
+
+    <li>Approved leaving the accelerated path's peak memory as it stands. The result, the convolution's output
+        plane and its masked input are necessarily live together, and striping the image to avoid that was not
+        worth the complexity against code whose correctness is currently straightforward. No change made.</li>
+
+    <li>Asked what the interleave scatter finding is about. Answered: each finished channel is a contiguous
+        plane that has to be written into every third slot of the interleaved result, which is currently a plain
+        indexed loop. <code>cblas_dcopy</code> expresses a strided copy in one vectorized call, and the reviewer
+        measured 5.1 ms against 8.3 ms over 8.3 million elements — about 12% of a 3840×2160 call across the three
+        channels. It would cost a second implementation behind <code>#if canImport( Accelerate )</code>, mirroring
+        the convolution, for an operation with no interesting behaviour, and the measurement is a microbenchmark
+        in isolation rather than in place.
+        <br><br>
+        <em>Decided: make the change.</em>
+        <br><br>
+        <em>Addressed — and reverted, because the win does not exist here.</em> The measured function,
+        <code>cblas_dcopy</code>, has been deprecated since macOS 13.3 in favour of an interface reached through
+        <code>-DACCELERATE_NEW_LAPACK</code>. This target compiles with warnings as errors, so calling it does not
+        merely warn, it fails the build — confirmed by compiling a probe both ways. Opting the package into the
+        new interface is not available either: it needs a C preprocessor define, which SwiftPM can only pass
+        through <code>unsafeFlags</code>, and a package using those cannot be consumed as a dependency.
+        <br><br>
+        Both non-deprecated alternatives were implemented and measured at 3840×2160 in Release against the loop's
+        48.8 ms (RGGB, best of five): <code>vDSP_mmovD</code> as a one-column submatrix move took
+        <strong>81.7 ms</strong>, and <code>vDSP_vsmulD</code> multiplying by one with an output stride took
+        49.2 ms — a 67% regression and a wash. The scatter is therefore left as it was, with the reason recorded
+        where the loop is, so the next reader does not repeat the experiment.</li>
+
+    <li>Accepted the missing coverage of the scalar convolution path as it stands. No change made.</li>
+
+    <li>The delegation tests belong with <code>SERFile</code>. If that leaves the protocol with no test of its
+        own, remove its test file rather than keeping one for the sake of the convention.
+        <br><br>
+        <em>Addressed.</em> All thirteen tests, the stub implementation they steer and the two color-ID tables
+        moved into <code>SwiftSERTests/SERFile.swift</code> under a <code>Debayering</code> section, and
+        <code>SwiftSERTests/SERDebayering.swift</code> was deleted and unregistered from the Xcode project — the
+        protocol declares no behavior of its own to test. Two names were adjusted for their new home:
+        <code>file(colorID:)</code> to <code>fileDeclaring(colorID:)</code>, and
+        <code>rejectsAFrameIndexOutsideTheFile</code> to
+        <code>rejectsADebayerRequestForAnOutOfRangeFrame</code>, which no longer sits beside a suite of frame
+        addressing tests without saying what it addresses. The suite is unchanged at 201 tests, now in twelve
+        suites rather than thirteen.</li>
+
+    <li>Asked what the problem with the tests was, after a count of 200 test cases under <code>xcodebuild</code>
+        was reported against 201 under SwiftPM. Answered: there is no problem — the shortfall was in the
+        measurement, not the run. Counting the same build's output after redirecting it to a file gives exactly
+        201 test cases passed and 201 distinct names, matching <code>swift test</code> case for case; the earlier
+        200 came from counting a live <code>xcodebuild</code> stream through a pipe, and the one test it appeared
+        to lose, <code>integerReadsAtOffset()</code>, was present in that very output when searched for by name.
+        Both build systems run and pass the same 201 tests. No change made.</li>
+
+    <li>Asked why the delegation tests live in the protocol's test file rather than
+        <code>SwiftSERTests/SERFile.swift</code>. Answered: the protocol's contract — used, declines, throws
+        under each policy, returns the wrong length — is only observable through <code>SERFile</code>, which is
+        where the two properties live, so those tests are about the protocol even though the code applying it
+        sits elsewhere. Splitting them the other way would leave the protocol's own test file with a protocol's
+        worth of behaviour to test, which is none. Milestone 4 set the precedent:
+        <code>SwiftSERTests/SERFrames.swift</code> tests a collection whose entry points are
+        <code>SERFile/frames</code> and <code>SERFile/frame(at:)</code>. No change made.</li>
+</ul>
+</div>
 </div>
 
 <h3 class="phase-heading">Phase 3 — Output</h3>
@@ -1669,8 +1948,21 @@ per 2×2 tile, green (or yellow, for CMY) twice — hence the two kernels:
       [ 1 2 1 ]           [ 0 1 0 ]</code></pre>
 
 <p>
-Both map directly onto <code>vDSP_f3x3D</code>. Coordinates are clamped to the image bounds so border sites
-interpolate from the same color arrangement interior sites would see.
+Both map directly onto <code>vDSP_f3x3D</code>, but only over the interior. A site with a whole 3×3
+neighbourhood always finds the kernel's weights summing to exactly one over the sites of its channel — for both
+kernels, all eight patterns and all four tile parities — so the plain convolution is already the right answer
+there, and <code>vDSP_f3x3D</code> computes exactly it.
+</p>
+
+<p>
+A site at the image's edge does not have a whole neighbourhood, and clamping coordinates to the image bounds
+does not give it one: replicating an edge site copies the tile parity of the row or column it came from, so the
+copy carries no sample of the channel being interpolated. In a four-row RGGB frame the red plane at site (3,0)
+reads row 4 as row 3, finds no red there, and comes out at half its value; on a flat field the whole border
+reads wrong. Border sites are therefore handled by summing the kernel's weights <em>as they are applied</em>,
+over the in-bounds sites that really carry the channel, and dividing the result by that sum — the same average,
+over the samples that exist. That is also the one-pixel ring <code>vDSP_f3x3D</code> zeroes in its own output,
+so the two divide the plane between them with nothing left over.
 </p>
 
 <h3 id="appendix-cmy">CMY to RGB conversion</h3>
@@ -1694,8 +1986,10 @@ B = ( C + M - Y ) / 2</code></pre>
 <strong>This is an approximation.</strong> It assumes ideal, non-overlapping filter responses. Real CMYG sensors
 have substantial spectral overlap and need a per-sensor calibration matrix, which the SER format does not record
 and the specification does not define. Colors produced from ColorID 16–19 are therefore plausible but not
-colorimetrically accurate, and the public documentation must say so. Results are clamped to the valid range,
-since the transform can produce out-of-range values on noisy input.
+colorimetrically accurate, and the public documentation must say so. Only the lower bound of the result needs
+clamping: each of C, Y and M is a weighted average of the frame's samples, which are unsigned, so none of the
+three exceeds the largest sample present and no half-sum of two of them less a third can either. Subtracting can
+take a noisy pixel below zero, which is not a color.
 </div>
 
 <h3 id="appendix-alignment">Bit alignment</h3>
