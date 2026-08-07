@@ -155,4 +155,86 @@ class TestUtilities
 
         return Data( fields.flatMap { $0 } )
     }
+
+    /// Builds a synthetic SER file: a header, its frames, and an optional
+    /// timestamp trailer.
+    ///
+    /// Each frame is filled with its own index, so a decoded frame can be told
+    /// apart from its neighbours. `framesPresent` and `timestamps` are
+    /// deliberately independent of `frameCount`, so a file can be made to
+    /// disagree with what its header declares.
+    ///
+    /// - Parameters:
+    ///   - colorID:            The raw color ID.
+    ///   - imageWidth:         The image width, in pixels.
+    ///   - imageHeight:        The image height, in pixels.
+    ///   - pixelDepthPerPlane: The true bit depth per pixel per plane.
+    ///   - frameCount:         The frame count the header declares.
+    ///   - dateTime:           The local start time, in 100 ns ticks.
+    ///   - dateTimeUTC:        The UTC start time, in 100 ns ticks.
+    ///   - framesPresent:      The number of frames actually written, defaulting
+    ///                         to the declared count.
+    ///   - timestamps:         The trailer's tick values, or `nil` for no
+    ///                         trailer at all.
+    /// - Returns: The file's bytes.
+    static func fileData(
+        colorID:            Int32      = 0,
+        imageWidth:         Int32      = 4,
+        imageHeight:        Int32      = 2,
+        pixelDepthPerPlane: Int32      = 8,
+        frameCount:         Int32      = 2,
+        dateTime:           Int64      = 0,
+        dateTimeUTC:        Int64      = 0,
+        framesPresent:      Int?       = nil,
+        timestamps:         [ Int64 ]? = nil
+    )
+    -> Data
+    {
+        let planes        = ( colorID == 100 || colorID == 101 ) ? 3 : 1
+        let bytesPerPixel = ( pixelDepthPerPlane <= 8 ? 1 : 2 ) * planes
+        let bytesPerFrame = max( 0, Int( imageWidth ) * Int( imageHeight ) * bytesPerPixel )
+        let present       = max( 0, framesPresent ?? Int( frameCount ) )
+
+        let header = Self.headerData(
+            colorID:            colorID,
+            imageWidth:         imageWidth,
+            imageHeight:        imageHeight,
+            pixelDepthPerPlane: pixelDepthPerPlane,
+            frameCount:         frameCount,
+            dateTime:           dateTime,
+            dateTimeUTC:        dateTimeUTC
+        )
+
+        let frames = ( 0 ..< present ).flatMap
+        {
+            Array( repeating: UInt8( truncatingIfNeeded: $0 ), count: bytesPerFrame )
+        }
+
+        let trailer = ( timestamps ?? [] ).flatMap
+        {
+            Self.littleEndianBytes( $0 )
+        }
+
+        return header + Data( frames ) + Data( trailer )
+    }
+
+    /// Writes data to a uniquely named file in the temporary directory.
+    ///
+    /// - Parameters:
+    ///   - data: The bytes to write.
+    ///   - name: The file name to use.
+    /// - Returns: The URL the data was written to.
+    /// - Throws: Any error raised while writing.
+    static func temporaryFile( containing data: Data, named name: String ) throws -> URL
+    {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent( UUID().uuidString )
+
+        try FileManager.default.createDirectory( at: directory, withIntermediateDirectories: true )
+
+        let url = directory.appendingPathComponent( name )
+
+        try data.write( to: url )
+
+        return url
+    }
 }

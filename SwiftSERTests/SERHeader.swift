@@ -218,9 +218,9 @@ struct Test_SERHeader
     {
         // A start date of zero or less is invalid, and the specification says
         // such a file carries no trailer.
-        #expect( try SERHeader( data: TestUtilities.headerData( dateTime:  1 ), options: .strict ).hasTimestampTrailer == true )
-        #expect( try SERHeader( data: TestUtilities.headerData( dateTime:  0 ), options: .strict ).hasTimestampTrailer == false )
-        #expect( try SERHeader( data: TestUtilities.headerData( dateTime: -1 ), options: .strict ).hasTimestampTrailer == false )
+        #expect( try SERHeader( data: TestUtilities.headerData( dateTime:  1 ), options: .strict ).declaresTimestampTrailer == true )
+        #expect( try SERHeader( data: TestUtilities.headerData( dateTime:  0 ), options: .strict ).declaresTimestampTrailer == false )
+        #expect( try SERHeader( data: TestUtilities.headerData( dateTime: -1 ), options: .strict ).declaresTimestampTrailer == false )
     }
 
     // MARK: - Validation

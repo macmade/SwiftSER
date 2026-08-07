@@ -147,7 +147,7 @@ public struct SERHeader: Sendable, CustomStringConvertible
     /// 0001-01-01 00:00:00.
     ///
     /// A value of zero or less is invalid and means the file carries no
-    /// timestamp trailer, which is what ``hasTimestampTrailer`` reports.
+    /// timestamp trailer, which is what ``declaresTimestampTrailer`` reports.
     public let dateTime: Int64
 
     /// The UTC start time of the image stream, in 100 ns ticks since
@@ -183,12 +183,15 @@ public struct SERHeader: Sendable, CustomStringConvertible
         self.colorID.bayerPattern
     }
 
-    /// Whether the file carries a trailer of per-frame timestamps.
+    /// Whether the header claims the file carries a trailer of per-frame
+    /// timestamps.
     ///
     /// The specification ties this to the local start time: a value of zero or
-    /// less is invalid and means there is no trailer. Whether the trailer is
-    /// really there is confirmed against the file's length.
-    public var hasTimestampTrailer: Bool
+    /// less is invalid and means there is no trailer. This reports only what
+    /// the header says, on the raw field — ``SERFile/hasTimestampTrailer``
+    /// confirms it against the file's length and honours
+    /// ``SERParsingOptions/allowInvalidTimestamps``.
+    public var declaresTimestampTrailer: Bool
     {
         self.dateTime > 0
     }
@@ -393,7 +396,7 @@ public struct SERHeader: Sendable, CustomStringConvertible
             Number Of Planes:      \( self.numberOfPlanes )
             Bytes Per Pixel:       \( self.bytesPerPixel )
             Bytes Per Frame:       \( self.bytesPerFrame )
-            Timestamp Trailer:     \( self.hasTimestampTrailer ? "Yes" : "No" )
+            Timestamp Trailer:     \( self.declaresTimestampTrailer ? "Yes" : "No" )
         }
         """
     }

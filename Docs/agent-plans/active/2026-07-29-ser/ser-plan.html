@@ -535,7 +535,7 @@ fixtures only.
     <li class="phase">Phase 1 — Parsing foundations</li>
     <li><a href="#m1">Milestone 1 — Project scaffolding, errors and parsing options</a> <span class="status status-completed">Completed</span></li>
     <li><a href="#m2">Milestone 2 — Header parsing</a> <span class="status status-completed">Completed</span></li>
-    <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-completed">Completed</span></li>
 
     <li class="phase">Phase 2 — Pixel data</li>
     <li><a href="#m4">Milestone 4 — Raw frame access and sample decoding</a> <span class="status status-notstarted">Not started</span></li>
@@ -937,7 +937,7 @@ against the committed Milestone 1 code.
 </div>
 
 <div class="milestone" id="m3">
-<h3>Milestone 3 — File structure, frame index and timestamps <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 3 — File structure, frame index and timestamps <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -964,11 +964,182 @@ Frames are addressed lazily — a multi-gigabyte capture must not be read into m
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-07</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first. The suite grew from 73 to 120 tests. Both constants and the trailer layout were checked
+against <code>Documentation/SER Doc V3b.pdf</code> directly.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/SERTimestamp.swift</code> — the 100 ns tick encoding, with the epoch offset, the 62-bit
+        mask and the documented range bounds.</li>
+    <li><code>SwiftSER/SERFile.swift</code> — the top-level entry point: both initializers, layout validation,
+        frame addressing and the timestamp trailer.</li>
+    <li><code>SwiftSERTests/SERTimestamp.swift</code>, <code>SwiftSERTests/SERFile.swift</code>.</li>
+    <li><code>SwiftSERTests/TestUtilities.swift</code> gained a whole-file builder and a temporary-file helper.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>Masking is applied before the validity check.</strong> The flag exists for values whose two
+        undocumented high bits make them read as negative, so testing the raw value first would make it a no-op.
+        The cost this would otherwise carry — a corrupt <code>-1</code> masking into a year-14614 date — is
+        removed by bounding ticks at <code>maxTicks</code>, the last tick of 9999-12-31, which is the range the
+        encoding documents.</li>
+    <li><strong>Trailer presence follows the specification's sign test, not representability.</strong>
+        <code>expectsTrailer</code> tests <code>ticks &gt; 0</code>, so a positive but out-of-range start date
+        still means the trailer is there and its bytes never become addressable as frames.</li>
+    <li><strong><code>SERFile.hasTimestampTrailer</code> is the confirmed answer</strong>, checked against the
+        file's length and honouring <code>allowInvalidTimestamps</code>. The header's own property was renamed to
+        <code>declaresTimestampTrailer</code>, since this milestone would otherwise have introduced two
+        differently-behaving properties of the same name. That resolves the finding carried over from
+        Milestone 2.</li>
+    <li><strong><code>startTime</code> is a wall-clock reading, not an instant.</strong> Field 12 is local time
+        with no zone attached, so it is expressed as though it were UTC and documented as such; field 13 is the
+        instant. <code>utcOffset</code> was added because the difference between the two fields is the only
+        time-zone information the format carries, and it is what makes the local reading usable.</li>
+    <li><strong><code>timestamps</code> always holds exactly <code>frameCount</code> entries</strong>, so it can
+        be indexed by frame index, with <code>nil</code> where the trailer does not reach or the value names no
+        instant. Parsed on first access and cached, which is what makes the type non-<code>Sendable</code>, as
+        <code>FITSFile</code> is.</li>
+    <li><strong>A tail too short for one whole timestamp is a short trailer, not a missing one</strong>, so it
+        answers to <code>allowShortTrailer</code>.</li>
+</ul>
+
+<div class="note">
+<strong>Frame-count reconciliation measures the trailer instead of guessing at it.</strong> When the header
+over-declares and <code>allowFrameCountMismatch</code> is set, the frame count has to come from the bytes. The
+first three attempts all split the payload with a divisor, and every one of them was wrong somewhere: one
+length with two unknowns reads both as more frames and as fewer frames followed by their timestamps, and files
+exist that fit both readings exactly with opposite correct answers. No divisor can separate them.
+
+<br><br>
+
+The trailer is not defined by a divisor, though — it is whatever timestamps the file <em>ends</em> with, so it
+is measured there. Walking backwards from the last eight bytes, an entry belongs to the trailer while it names
+a representable instant, does not precede the entry after it, and falls within two days of the moment the
+capture started. That leaves one unknown rather than two: the frames are whatever precedes the run, taking the
+longest run that divides the remaining bytes into whole frames and leaves at least one frame per timestamp.
+
+<br><br>
+
+Frame data walked into by mistake fails those tests almost at once. The one shape that survives them is a frame
+of near-constant samples, which reads as the same instant repeatedly — rejected because several frames are
+never captured within one 100 ns tick. The bound on the capture window is what makes the rest decisive: a
+repeating byte pattern misread as a timestamp misses it by centuries. Each of the four parts — the UTC anchor,
+its local-time fallback, the capture window and the repeated-instant rule — was confirmed load-bearing by
+removing it and watching a test fail.
+</div>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 120 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>; <code>xcodebuild docbuild</code> — no unresolved
+documentation links. Across the three review rounds the arithmetic was fuzzed with roughly 5 million, 266
+thousand and 400 thousand adversarial header, length and option combinations, with no trap, no out-of-bounds
+frame offset and no division by zero in any of them. Every fix in this milestone was confirmed by re-running the
+mutation that motivated it.
+</p>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Three rounds, each by a fresh sub-agent with no prior context, each verifying against the V3 PDF and using
+fuzzing and mutation testing rather than inspection. The loop reached its three-iteration cap with round 3's two
+<em>Medium</em> findings still open; they were closed afterwards, on review, by replacing the whole approach
+rather than adjusting it again. Everything raised across the three rounds is fixed.
+</p>
+
+<p><strong>Round 1 — four Medium findings, all fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — <code>allowFrameCountMismatch</code> clamped using bytes belonging to the trailer.</strong>
+        A file could report an addressable frame that overlapped the trailer while simultaneously reporting no
+        trailer. <em>Fixed</em>, and the original bug was reproduced by mutation to confirm the new test catches
+        it.</li>
+    <li><strong>Medium — <code>startTime</code> presented a local wall-clock reading as an absolute instant.</strong>
+        <em>Fixed</em> by documenting the semantics and adding <code>utcOffset</code>.</li>
+    <li><strong>Medium — no upper bound on tick values.</strong> <em>Fixed</em> by adding
+        <code>maxTicks</code>.</li>
+    <li><strong>Medium — tests indexed arrays unguarded</strong>, so one logical failure trapped and took the
+        whole run down, reporting nothing for the other hundred tests. <em>Fixed</em> with
+        <code>try #require</code> before every subscript.</li>
+    <li><strong>Low/Info</strong> — a 1–7 byte trailer reported as missing (<em>fixed</em>); the untested overflow
+        guard (<em>fixed</em>); a caching test that proved nothing (<em>fixed</em>); the two same-named trailer
+        properties (<em>fixed</em> by the rename); several unpinned mutants (<em>fixed</em>); receiver-relative
+        offset wording (<em>fixed</em>).</li>
+</ul>
+
+<p><strong>Round 2 — one High and two Medium findings, all fixed</strong></p>
+
+<ul>
+    <li><strong>High — round 1's clamping fix over-corrected.</strong> Assuming every frame costs its pixel bytes
+        plus a timestamp swallowed a frame of any capture cut off <em>before</em> its trailer was written, which
+        is the ordinary shape of a truncated file, and read that frame's pixels as timestamps. <em>Fixed</em> by
+        believing whichever reading accounts for the payload exactly.</li>
+    <li><strong>Medium — <code>expectsTrailer</code> used <code>date != nil</code> rather than the
+        specification's <code>dateTime &gt; 0</code></strong>, so a positive but out-of-range start date read as
+        "no trailer" and put the trailer's bytes back in reach as frames. <em>Fixed.</em></li>
+    <li><strong>Medium — <code>utcOffset</code> had no test at all</strong>; its sign and its nil cases both
+        survived mutation. <em>Fixed.</em></li>
+    <li><strong>Low/Info</strong> — two dangling documentation links left by the rename (<em>fixed</em>, and
+        <code>docbuild</code> is now clean); the untested <code>trailerCount</code> bound (<em>fixed</em>); a test
+        asserting a count its production code guaranteed unconditionally (<em>fixed</em>); and a test helper that
+        trapped on a negative frame count (<em>fixed</em>).</li>
+</ul>
+
+<p><strong>Round 3 — two Medium findings, unresolved; iteration cap reached</strong></p>
+
+<ul>
+    <li><strong>Medium — the reconciliation rule can address trailer bytes as frames</strong> when a short
+        trailer's length happens to be a multiple of the frame size. <em>Fixed.</em></li>
+    <li><strong>Medium — the tie-break can fabricate timestamps from pixel data and drop a frame</strong> when a
+        trailer-less truncated capture happens to divide exactly by frame-plus-timestamp. <em>Fixed.</em>
+        Both were closed together, after review, by abandoning divisor arithmetic entirely: the two findings'
+        recommendations contradict each other — round 1's bug case and this one have identical arithmetic
+        signatures and opposite correct answers — which is what showed that the payload length is the wrong
+        thing to be asking. Measuring the trailer backwards from the end of the file answers both, and a sweep
+        over five geometries, eight frame counts and every trailer length in between now pins the result.</li>
+    <li><strong>Low/Info</strong> — the round 2 fallback branch was untested and the test written for it took a
+        different branch (<em>fixed</em>, and confirmed by mutation); <code>hasTimestampTrailer</code> disagreed
+        with the short-trailer routing about what counts as a trailer (<em>fixed</em> by documenting and
+        asserting it); <code>frameCount</code> and the class documentation overstated what reconciliation
+        establishes (<em>fixed</em>); a test helper trapped on a negative image dimension (<em>fixed</em>); an
+        unobservable <code>min</code> cap and an unreachable-on-64-bit overflow branch (<em>noted in the code</em>);
+        a description test too loose to catch a wrong field (<em>fixed</em>); and notes on
+        <code>timestamps</code> memory use and <code>byteOffset(ofFrame:)</code> reachability for Milestone 4
+        (<em>carried forward</em>).</li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>The two unresolved <code>Medium</code> findings are not acceptable as documentation. Fix them properly
+        rather than declaring the layout undecidable and writing the ambiguity into the doc comments.
+        <br><br>
+        <em>Addressed.</em> The finding was right, and so was the framing behind it: the layout is only
+        undecidable while the question is "how does this payload length divide", which has two unknowns. The
+        trailer is not a quotient — it is the timestamps the file ends with — so it is now measured backwards
+        from the end of the file, which leaves one unknown and answers both cases. Both are covered by tests, a
+        sweep over five geometries and eight frame counts pins the general result, and each of the four parts of
+        the check was confirmed load-bearing by mutation. The doc comments no longer describe an ambiguity.</li>
+    <li>Asked what the 48-hour capture window is for. Answered: it is the only tuned constant, used solely by the
+        backward walk that locates the trailer, and only on the corrupt-file recovery path — it bounds how far
+        past the capture's start a timestamp may fall, which is what stops the walk running on into frame data.
+        Accepted as-is; no change made.</li>
+</ul>
+</div>
 </div>
 
 <h3 class="phase-heading">Phase 2 — Pixel data</h3>

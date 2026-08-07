@@ -21,6 +21,10 @@
 		05E20015301A32C300E89E15 /* SERColorID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E20005301A32C300E89E15 /* SERColorID.swift */; };
 		05E20016301A32C300E89E15 /* SERHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E20006301A32C300E89E15 /* SERHeader.swift */; };
 		05E20017301A32C300E89E15 /* TestUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E20007301A32C300E89E15 /* TestUtilities.swift */; };
+		05E30011301A32C300E89E15 /* SERFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E30001301A32C300E89E15 /* SERFile.swift */; };
+		05E30012301A32C300E89E15 /* SERTimestamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E30002301A32C300E89E15 /* SERTimestamp.swift */; };
+		05E30013301A32C300E89E15 /* SERFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E30003301A32C300E89E15 /* SERFile.swift */; };
+		05E30014301A32C300E89E15 /* SERTimestamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E30004301A32C300E89E15 /* SERTimestamp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,6 +54,10 @@
 		05E20005301A32C300E89E15 /* SERColorID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERColorID.swift; sourceTree = "<group>"; };
 		05E20006301A32C300E89E15 /* SERHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERHeader.swift; sourceTree = "<group>"; };
 		05E20007301A32C300E89E15 /* TestUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestUtilities.swift; sourceTree = "<group>"; };
+		05E30001301A32C300E89E15 /* SERFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERFile.swift; sourceTree = "<group>"; };
+		05E30002301A32C300E89E15 /* SERTimestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERTimestamp.swift; sourceTree = "<group>"; };
+		05E30003301A32C300E89E15 /* SERFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERFile.swift; sourceTree = "<group>"; };
+		05E30004301A32C300E89E15 /* SERTimestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERTimestamp.swift; sourceTree = "<group>"; };
 		052BACA1301A32D000E89E15 /* CODE_OF_CONDUCT.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CODE_OF_CONDUCT.md; sourceTree = "<group>"; };
 		052BACA2301A32D000E89E15 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		052BACA3301A32D000E89E15 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -150,8 +158,10 @@
 				05E20001301A32C300E89E15 /* SERBayerPattern.swift */,
 				05E20002301A32C300E89E15 /* SERColorID.swift */,
 				05E10001301A32C300E89E15 /* SERError.swift */,
+				05E30001301A32C300E89E15 /* SERFile.swift */,
 				05E20003301A32C300E89E15 /* SERHeader.swift */,
 				05E10002301A32C300E89E15 /* SERParsingOptions.swift */,
+				05E30002301A32C300E89E15 /* SERTimestamp.swift */,
 			);
 			path = SwiftSER;
 			sourceTree = "<group>";
@@ -163,8 +173,10 @@
 				05E20004301A32C300E89E15 /* SERBayerPattern.swift */,
 				05E20005301A32C300E89E15 /* SERColorID.swift */,
 				05E10006301A32C300E89E15 /* SERError.swift */,
+				05E30003301A32C300E89E15 /* SERFile.swift */,
 				05E20006301A32C300E89E15 /* SERHeader.swift */,
 				05E10007301A32C300E89E15 /* SERParsingOptions.swift */,
+				05E30004301A32C300E89E15 /* SERTimestamp.swift */,
 				05E20007301A32C300E89E15 /* TestUtilities.swift */,
 			);
 			path = SwiftSERTests;
@@ -421,8 +433,10 @@
 				05E20011301A32C300E89E15 /* SERBayerPattern.swift in Sources */,
 				05E20012301A32C300E89E15 /* SERColorID.swift in Sources */,
 				05E10011301A32C300E89E15 /* SERError.swift in Sources */,
+				05E30011301A32C300E89E15 /* SERFile.swift in Sources */,
 				05E20013301A32C300E89E15 /* SERHeader.swift in Sources */,
 				05E10012301A32C300E89E15 /* SERParsingOptions.swift in Sources */,
+				05E30012301A32C300E89E15 /* SERTimestamp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -434,8 +448,10 @@
 				05E20014301A32C300E89E15 /* SERBayerPattern.swift in Sources */,
 				05E20015301A32C300E89E15 /* SERColorID.swift in Sources */,
 				05E10016301A32C300E89E15 /* SERError.swift in Sources */,
+				05E30013301A32C300E89E15 /* SERFile.swift in Sources */,
 				05E20016301A32C300E89E15 /* SERHeader.swift in Sources */,
 				05E10017301A32C300E89E15 /* SERParsingOptions.swift in Sources */,
+				05E30014301A32C300E89E15 /* SERTimestamp.swift in Sources */,
 				05E20017301A32C300E89E15 /* TestUtilities.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
