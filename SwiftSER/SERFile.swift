@@ -247,7 +247,9 @@ public class SERFile: CustomStringConvertible
         let imageDataLength = self.frameCount * header.bytesPerFrame
         let trailerOffset   = SERHeader.size + imageDataLength
         let trailerLength   = data.count - trailerOffset
-        let storedCount     = expectsTrailer ? min( trailerLength / SERFile.timestampSize, self.frameCount ) : 0
+        // Qualified, since conforming to `Sequence` brings a `min` of its own
+        // into the type's scope.
+        let storedCount     = expectsTrailer ? Swift.min( trailerLength / SERFile.timestampSize, self.frameCount ) : 0
 
         if expectsTrailer, self.frameCount > 0, trailerLength == 0, options.contains( .allowMissingTrailer ) == false
         {
@@ -270,8 +272,6 @@ public class SERFile: CustomStringConvertible
         self.hasTimestampTrailer = storedCount > 0
     }
 
-    /// The number of whole frames a payload of a given length can hold.
-    ///
     /// The widest offset from UTC any time zone uses, in ticks.
     ///
     /// World time zones run from UTC−12 to UTC+14, so a local reading is never
@@ -313,7 +313,9 @@ public class SERFile: CustomStringConvertible
             return nil
         }
 
-        return max( 1, local.ticks - SERFile.maximumTimeZoneOffset )
+        // Qualified, since conforming to `Sequence` brings a `max` of its own
+        // into the type's scope.
+        return Swift.max( 1, local.ticks - SERFile.maximumTimeZoneOffset )
     }
 
     /// The length, in timestamps, of the run of coherent timestamps a payload
@@ -473,23 +475,78 @@ public class SERFile: CustomStringConvertible
         return SERHeader.size + index * self.header.bytesPerFrame
     }
 
+    /// The file's frames, addressed on demand.
+    ///
+    /// A random-access collection of ``frameCount`` frames, which builds each
+    /// one as it is asked for and reads no pixel data doing so.
+    public var frames: SERFrames
+    {
+        SERFrames( file: self )
+    }
+
+    /// The frame at an index.
+    ///
+    /// Frames are views onto the file's bytes: this reads none of the pixel
+    /// data, which is decoded only when ``SERFrame/samples`` is asked for.
+    ///
+    /// - Parameter index: The frame's index, in `0 ..< frameCount`.
+    /// - Returns: The frame at that index.
+    /// - Throws: ``SERError/frameIndexOutOfRange(index:count:)`` if the index
+    ///           falls outside the frames the file holds.
+    public func frame( at index: Int ) throws -> SERFrame
+    {
+        let offset = try self.byteOffset( ofFrame: index )
+
+        // The one timestamp is read straight from the trailer rather than
+        // through `timestamps`, which would parse the whole trailer — a capture
+        // of a hundred thousand frames would pay for all of them to look at one.
+        return SERFrame( index: index, header: self.header, timestamp: self.timestamp( ofFrame: index ), rawData: self.frameData( at: offset ) )
+    }
+
+    /// The bytes a frame occupies.
+    ///
+    /// The payload was measured against the frame count when the file was
+    /// parsed, so a frame's bytes are always entirely present. The range is
+    /// nonetheless walked with bounded index arithmetic rather than built
+    /// directly, so that being a fact about the file is not something the
+    /// slicing could trap on.
+    ///
+    /// - Parameter offset: The frame's offset, from the start of the data the
+    ///                     file was parsed from.
+    /// - Returns: The frame's bytes, as a slice sharing the file's storage.
+    private func frameData( at offset: Int ) -> Data
+    {
+        let start = self.data.index( self.data.startIndex, offsetBy: offset,                    limitedBy: self.data.endIndex ) ?? self.data.endIndex
+        let end   = self.data.index( start,                offsetBy: self.header.bytesPerFrame, limitedBy: self.data.endIndex ) ?? self.data.endIndex
+
+        return self.data[ start ..< end ]
+    }
+
+    /// Reads the timestamp recorded for one frame.
+    ///
+    /// - Parameter index: The frame's index.
+    /// - Returns: The instant the frame was captured, or `nil` when the trailer
+    ///            does not reach that frame or the stored value names no valid
+    ///            instant.
+    private func timestamp( ofFrame index: Int ) -> Date?
+    {
+        guard index >= 0, index < self.trailerCount,
+              let raw = try? self.data.integer( Int64.self, at: self.trailerOffset + ( index * SERFile.timestampSize ), littleEndian: true )
+        else
+        {
+            return nil
+        }
+
+        return SERTimestamp( rawValue: raw, options: self.options ).date
+    }
+
     /// Reads every timestamp the trailer holds.
     ///
     /// - Returns: One entry per frame, `nil` where the trailer does not reach
     ///            or the stored value names no valid instant.
     private func parseTimestamps() -> [ Date? ]
     {
-        ( 0 ..< self.frameCount ).map
-        {
-            guard $0 < self.trailerCount,
-                  let raw = try? self.data.integer( Int64.self, at: self.trailerOffset + ( $0 * SERFile.timestampSize ), littleEndian: true )
-            else
-            {
-                return nil
-            }
-
-            return SERTimestamp( rawValue: raw, options: self.options ).date
-        }
+        ( 0 ..< self.frameCount ).map { self.timestamp( ofFrame: $0 ) }
     }
 
     /// A multi-line, human-readable summary of the file.
@@ -506,5 +563,34 @@ public class SERFile: CustomStringConvertible
             Start Time UTC:    \( self.startTimeUTC.map { "\( $0 )" } ?? "Unknown" )
         }
         """
+    }
+}
+
+/// Iteration over a file's frames.
+///
+/// Conforming ``SERFile`` itself lets a capture be walked with `for frame in
+/// file`, and gives it the whole of `Sequence`'s vocabulary, without asking a
+/// caller to reach for ``SERFile/frames`` first.
+///
+/// - Note: The conformance brings `Sequence`'s own members into the type's
+///   scope, where they take precedence over free functions of the same name.
+///   Code inside ``SERFile`` calling `min` or `max` therefore has to say
+///   `Swift.min` or `Swift.max`. The failure is a compile error, not a wrong
+///   answer.
+extension SERFile: Sequence
+{
+    /// An iterator over the file's frames, in frame order.
+    ///
+    /// - Returns: An iterator yielding each of ``frames`` in turn.
+    public func makeIterator() -> IndexingIterator< SERFrames >
+    {
+        self.frames.makeIterator()
+    }
+
+    /// The number of frames the iteration yields, which is exact rather than an
+    /// estimate.
+    public var underestimatedCount: Int
+    {
+        self.frameCount
     }
 }

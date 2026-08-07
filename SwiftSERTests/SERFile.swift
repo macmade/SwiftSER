@@ -36,7 +36,7 @@ struct Test_SERFile
     @Test
     func parsesACompleteFile() async throws
     {
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 3 ), options: .strict )
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 3 ).file.data, options: .strict )
 
         #expect( file.header.imageWidth  == 4 )
         #expect( file.header.imageHeight == 2 )
@@ -47,14 +47,14 @@ struct Test_SERFile
     func rejectsDataTooShortForAHeader() async throws
     {
         try #require( throws: SERError.self ) { try SERFile( data: Data(), options: .lenient ) }
-        try #require( throws: SERError.self ) { try SERFile( data: TestUtilities.headerData().prefix( 100 ), options: .lenient ) }
+        try #require( throws: SERError.self ) { try SERFile( data: TestUtilities.wellFormedHeader.data.prefix( 100 ), options: .lenient ) }
     }
 
     @Test
     func acceptsAnEmptySequence() async throws
     {
         // A header declaring no frames is degenerate but well-formed.
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 0 ), options: .strict )
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 0 ).file.data, options: .strict )
 
         #expect( file.frameCount == 0 )
         #expect( file.timestamps.isEmpty )
@@ -63,7 +63,7 @@ struct Test_SERFile
     @Test
     func readsFromAFileURL() async throws
     {
-        let url  = try TestUtilities.temporaryFile( containing: TestUtilities.fileData( frameCount: 2 ), named: "capture.ser" )
+        let url  = try TestUtilities.temporaryFile( containing: TestUtilities.wellFormedHeader( frameCount: 2 ).file.data, named: "capture.ser" )
         let file = try SERFile( url: url, options: .strict )
 
         #expect( file.frameCount == 2 )
@@ -93,7 +93,12 @@ struct Test_SERFile
     func rejectsAFileShorterThanItsDeclaredFrames() async throws
     {
         // The header claims four frames but only two were written.
-        let data = TestUtilities.fileData( frameCount: 4, framesPresent: 2 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .strict ) }
     }
@@ -101,7 +106,12 @@ struct Test_SERFile
     @Test
     func clampsTheFrameCountToWhatThePayloadHolds() async throws
     {
-        let data = TestUtilities.fileData( frameCount: 4, framesPresent: 2 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount        == 2 )
@@ -111,7 +121,12 @@ struct Test_SERFile
     @Test
     func clampingIsGatedByItsOwnFlag() async throws
     {
-        let data    = TestUtilities.fileData( frameCount: 4, framesPresent: 2 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let options = SERParsingOptions.lenient.subtracting( .allowFrameCountMismatch )
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: options ) }
@@ -123,7 +138,12 @@ struct Test_SERFile
     func clampsAPartialTrailingFrame() async throws
     {
         // A capture cut mid-frame yields whole frames only, never a fragment.
-        let data = TestUtilities.fileData( frameCount: 4, framesPresent: 2 ) + Data( repeating: 0xFF, count: 3 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data + Data( repeating: 0xFF, count: 3 )
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount == 2 )
@@ -135,12 +155,13 @@ struct Test_SERFile
         // The header over-declares, and the file carries a trailer. Dividing the
         // remaining bytes by the frame size alone would count the trailer's
         // bytes as frames and hand back a frame overlapping it.
-        let data = TestUtilities.fileData(
-            frameCount:    100,
-            dateTime:      Self.startTicks,
-            framesPresent: 2,
-            timestamps:    [ Self.startTicks, Self.startTicks + 10_000_000 ]
-        )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 100
+        fields.dateTime   = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: [ Self.startTicks, Self.startTicks + 10_000_000 ] ).data
 
         let file = try SERFile( data: data, options: .lenient )
 
@@ -157,7 +178,16 @@ struct Test_SERFile
         // The trailer is written last, so an interrupted capture has a valid
         // start date and no trailer at all. Assuming a trailer regardless would
         // swallow the final frame and read its pixels as timestamps.
-        let data = TestUtilities.fileData( colorID: 0, imageWidth: 64, imageHeight: 48, frameCount: 1000, dateTime: Self.startTicks, framesPresent: 10 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID     = 0
+        fields.imageWidth  = 64
+        fields.imageHeight = 48
+        fields.frameCount  = 1000
+        fields.dateTime    = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 10, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount          == 10 )
@@ -171,7 +201,13 @@ struct Test_SERFile
         // Two frames and a single timestamp. Every divisor-based reading of the
         // payload gets this wrong: dividing by the frame size alone comes out
         // at three frames, the third being the timestamp's bytes.
-        let data = TestUtilities.fileData( frameCount: 100, dateTime: Self.startTicks, framesPresent: 2, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 100
+        fields.dateTime   = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: [ Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount          == 2 )
@@ -189,7 +225,16 @@ struct Test_SERFile
         // 385 frames of 3072 bytes is exactly 384 frames plus 384 timestamps,
         // so the payload length alone cannot say which it is. There is no
         // trailer here, and every frame must survive.
-        let data = TestUtilities.fileData( colorID: 0, imageWidth: 64, imageHeight: 48, frameCount: 1000, dateTime: Self.startTicks, framesPresent: 385 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID     = 0
+        fields.imageWidth  = 64
+        fields.imageHeight = 48
+        fields.frameCount  = 1000
+        fields.dateTime    = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 385, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount          == 385 )
@@ -204,7 +249,16 @@ struct Test_SERFile
         // the trailing bytes really are timestamps, and none of them may be
         // handed back as a frame.
         let ticks = ( 0 ..< 384 ).map { Self.startTicks + Int64( $0 ) * 10_000_000 }
-        let data  = TestUtilities.fileData( colorID: 0, imageWidth: 64, imageHeight: 48, frameCount: 1000, dateTime: Self.startTicks, framesPresent: 384, timestamps: ticks )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.colorID     = 0
+        fields.imageWidth  = 64
+        fields.imageHeight = 48
+        fields.frameCount  = 1000
+        fields.dateTime    = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 384, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: ticks ).data
         let file  = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount          == 384 )
@@ -236,16 +290,17 @@ struct Test_SERFile
 
                     let ticks = ( 0 ..< stamps ).map { Self.startTicks + Int64( $0 ) * 10_000_000 }
 
-                    let data = TestUtilities.fileData(
-                        imageWidth:         geometry.width,
-                        imageHeight:        geometry.height,
-                        pixelDepthPerPlane: geometry.depth,
-                        frameCount:         1000,
-                        dateTime:           Self.startTicks,
-                        dateTimeUTC:        Self.startTicks,
-                        framesPresent:      frames,
-                        timestamps:         ticks.isEmpty ? nil : ticks
-                    )
+                    var fields = TestUtilities.wellFormedHeader
+
+                    fields.imageWidth         = geometry.width
+                    fields.imageHeight        = geometry.height
+                    fields.pixelDepthPerPlane = geometry.depth
+                    fields.frameCount         = 1000
+                    fields.dateTime           = Self.startTicks
+                    fields.dateTimeUTC        = Self.startTicks
+
+                    let written = TestUtilities.indexedFrames( count: frames, bytesPerFrame: fields.bytesPerFrame )
+                    let data    = TestUtilities.File( header: fields, frames: written, timestamps: ticks.isEmpty ? nil : ticks ).data
 
                     let file    = try SERFile( data: data, options: .lenient )
                     let context = "\( geometry.width )x\( geometry.height )@\( geometry.depth ), \( frames ) frames, \( stamps ) timestamps"
@@ -266,13 +321,15 @@ struct Test_SERFile
         // run that never advances is what gives it away.
         let pattern = TestUtilities.littleEndianBytes( Self.startTicks + 1_000_000 )
 
-        let header = TestUtilities.headerData(
-            imageWidth:  8,
-            imageHeight: 8,
-            frameCount:  1000,
-            dateTime:    Self.startTicks,
-            dateTimeUTC: Self.startTicks
-        )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.imageWidth  = 8
+        fields.imageHeight = 8
+        fields.frameCount  = 1000
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = Self.startTicks
+
+        let header = fields.data
 
         let ordinary  = Data( repeating: 0x01, count: 64 )
         let deceptive = Data( ( 0 ..< 8 ).flatMap { _ in pattern } )
@@ -290,11 +347,13 @@ struct Test_SERFile
         // trailer can begin, once the unknown time zone is allowed for — here
         // the frames sit below the timestamps, so without any bound the walk
         // would carry straight on through them.
-        let header = TestUtilities.headerData(
-            frameCount:  1000,
-            dateTime:    Self.startTicks,
-            dateTimeUTC: 0
-        )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount  = 1000
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = 0
+
+        let header = fields.data
 
         let frames  = Data( repeating: 0x02, count: 12 * 8 )
         let trailer = Data( ( 0 ..< 4 ).flatMap { TestUtilities.littleEndianBytes( Self.startTicks + Int64( $0 ) * 10_000_000 ) } )
@@ -311,7 +370,13 @@ struct Test_SERFile
         // back to counting frames alone, so a truncated capture still exposes
         // what it has. The four trailing bytes leave neither reading exact, so
         // this reaches the fallback rather than an exact-fit rule.
-        let data = TestUtilities.fileData( frameCount: 100, dateTime: Self.startTicks, framesPresent: 1 ) + Data( repeating: 0xFF, count: 4 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 100
+        fields.dateTime   = Self.startTicks
+
+        let frames = TestUtilities.indexedFrames( count: 1, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data + Data( repeating: 0xFF, count: 4 )
         let file = try SERFile( data: data, options: .lenient )
 
         #expect( file.frameCount          == 1 )
@@ -324,7 +389,14 @@ struct Test_SERFile
         // A header can legitimately declare a frame size near `Int.max`, at
         // which point multiplying by the frame count wraps. The guard is the
         // only thing standing between that and a trap.
-        let data = TestUtilities.headerData( imageWidth: 3, imageHeight: Int32.max, pixelDepthPerPlane: 8, frameCount: Int32.max )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.imageWidth         = 3
+        fields.imageHeight        = Int32.max
+        fields.pixelDepthPerPlane = 8
+        fields.frameCount         = Int32.max
+
+        let data = fields.data
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .strict ) }
 
@@ -336,7 +408,12 @@ struct Test_SERFile
     {
         // Extra bytes past the declared frames are not an error: they are where
         // the timestamp trailer lives.
-        let data = TestUtilities.fileData( frameCount: 2, framesPresent: 4 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+
+        let frames = TestUtilities.indexedFrames( count: 4, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let file = try SERFile( data: data, options: .strict )
 
         #expect( file.frameCount == 2 )
@@ -351,7 +428,7 @@ struct Test_SERFile
     @Test
     func computesTheByteOffsetOfEveryFrame() async throws
     {
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 3 ), options: .strict )
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 3 ).file.data, options: .strict )
 
         #expect( try file.byteOffset( ofFrame: 0 ) == 178 )
         #expect( try file.byteOffset( ofFrame: 1 ) == 178 + 8 )
@@ -361,7 +438,7 @@ struct Test_SERFile
     @Test
     func rejectsAnOutOfRangeFrameIndex() async throws
     {
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 3 ), options: .strict )
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 3 ).file.data, options: .strict )
 
         try #require( throws: SERError.self ) { try file.byteOffset( ofFrame: -1 ) }
         try #require( throws: SERError.self ) { try file.byteOffset( ofFrame: 3 ) }
@@ -373,10 +450,83 @@ struct Test_SERFile
     {
         // Frames the header declares but the file does not hold must not be
         // addressable.
-        let data = TestUtilities.fileData( frameCount: 4, framesPresent: 2 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
         let file = try SERFile( data: data, options: .lenient )
 
         try #require( throws: SERError.self ) { try file.byteOffset( ofFrame: 2 ) }
+    }
+
+    @Test
+    func returnsTheFrameAtAnIndex() async throws
+    {
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.imageWidth  = 2
+        fields.imageHeight = 1
+        fields.frameCount  = 3
+
+        let data = TestUtilities.File( header: fields, frames: [ [ 1, 2 ], [ 3, 4 ], [ 5, 6 ] ], timestamps: nil ).data
+        let file = try SERFile( data: data, options: .strict )
+
+        #expect( try file.frame( at: 0 ).samples == [ 1, 2 ] )
+        #expect( try file.frame( at: 2 ).samples == [ 5, 6 ] )
+        #expect( try file.frame( at: 2 ).index   == 2 )
+    }
+
+    @Test
+    func rejectsAnOutOfRangeFrameRequest() async throws
+    {
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 3 ).file.data, options: .strict )
+
+        try #require( throws: SERError.self ) { try file.frame( at: -1 ) }
+        try #require( throws: SERError.self ) { try file.frame( at: 3 ) }
+        try #require( throws: SERError.self ) { try file.frame( at: Int.max ) }
+    }
+
+    @Test
+    func returnsFramesAgainstTheClampedCount() async throws
+    {
+        // Frames the header declares but the file does not hold must not be
+        // reachable through the frame accessors either.
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 4
+
+        let frames = TestUtilities.indexedFrames( count: 2, bytesPerFrame: fields.bytesPerFrame )
+        let data   = TestUtilities.File( header: fields, frames: frames, timestamps: nil ).data
+        let file = try SERFile( data: data, options: .lenient )
+
+        try #require( throws: SERError.self ) { try file.frame( at: 2 ) }
+    }
+
+    @Test
+    func iteratingTheFileYieldsEveryFrameInOrder() async throws
+    {
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.imageWidth  = 2
+        fields.imageHeight = 1
+        fields.frameCount  = 3
+
+        let data = TestUtilities.File( header: fields, frames: [ [ 1, 2 ], [ 3, 4 ], [ 5, 6 ] ], timestamps: nil ).data
+        let file = try SERFile( data: data, options: .strict )
+
+        #expect( file.map { $0.index }                == [ 0, 1, 2 ] )
+        #expect( try file.flatMap { try $0.samples }  == [ 1, 2, 3, 4, 5, 6 ] )
+        #expect( file.underestimatedCount             == 3 )
+    }
+
+    @Test
+    func iteratingAFileWithNoFramesYieldsNothing() async throws
+    {
+        let file = try SERFile( data: TestUtilities.wellFormedHeader( frameCount: 0 ).file.data, options: .strict )
+
+        #expect( file.map { $0.index }.isEmpty )
     }
 
     // MARK: - Timestamps
@@ -385,7 +535,12 @@ struct Test_SERFile
     func readsTheTimestampTrailer() async throws
     {
         let ticks = [ Self.startTicks, Self.startTicks + 10_000_000, Self.startTicks + 20_000_000 ]
-        let data  = TestUtilities.fileData( frameCount: 3, dateTime: Self.startTicks, timestamps: ticks )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 3
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: ticks ).data
         let file  = try SERFile( data: data, options: .strict )
 
         #expect( file.hasTimestampTrailer == true )
@@ -405,7 +560,12 @@ struct Test_SERFile
     func reportsNoTrailerWhenTheStartDateIsInvalid() async throws
     {
         // A start date of zero or less means the file carries no trailer.
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 2, dateTime: 0 ), options: .strict )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = 0
+
+        let file = try SERFile( data: TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data, options: .strict )
 
         #expect( file.hasTimestampTrailer == false )
         #expect( file.timestamps          == [ nil, nil ] )
@@ -416,7 +576,12 @@ struct Test_SERFile
     {
         // The header declares a start date, so a trailer is expected, but none
         // was written.
-        let data = TestUtilities.fileData( frameCount: 2, dateTime: Self.startTicks )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .strict ) }
 
@@ -429,7 +594,12 @@ struct Test_SERFile
     @Test
     func rejectsAShortTrailer() async throws
     {
-        let data = TestUtilities.fileData( frameCount: 3, dateTime: Self.startTicks, timestamps: [ Self.startTicks, Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 3
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks, Self.startTicks ] ).data
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .strict ) }
 
@@ -447,7 +617,12 @@ struct Test_SERFile
     {
         // Four bytes are not a whole timestamp, but they are still a trailer,
         // so this is a short trailer rather than a missing one.
-        let data = TestUtilities.fileData( frameCount: 1, dateTime: Self.startTicks ) + Data( repeating: 0xFF, count: 4 )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 1
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data + Data( repeating: 0xFF, count: 4 )
 
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .strict ) }
         try #require( throws: SERError.self ) { try SERFile( data: data, options: .lenient.subtracting( .allowShortTrailer ) ) }
@@ -468,7 +643,12 @@ struct Test_SERFile
         // The flag governs the trailer's own values, not just the header's
         // start date.
         let raw  = Int64( bitPattern: UInt64( Self.startTicks ) | ( 1 << 63 ) )
-        let data = TestUtilities.fileData( frameCount: 1, dateTime: Self.startTicks, timestamps: [ raw ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 1
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ raw ] ).data
 
         #expect( try SERFile( data: data, options: .strict ).timestamps == [ nil ] )
         #expect( try SERFile( data: data, options: .lenient ).timestamps.first ?? nil != nil )
@@ -479,7 +659,12 @@ struct Test_SERFile
     {
         // No frames means no timestamps are owed, so the absent trailer is not
         // a failure even under strict parsing.
-        let file = try SERFile( data: TestUtilities.fileData( frameCount: 0, dateTime: Self.startTicks ), options: .strict )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 0
+        fields.dateTime   = Self.startTicks
+
+        let file = try SERFile( data: TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data, options: .strict )
 
         #expect( file.frameCount == 0 )
         #expect( file.timestamps.isEmpty )
@@ -488,8 +673,16 @@ struct Test_SERFile
     @Test
     func trailerFailuresAreGatedByTheirOwnFlags() async throws
     {
-        let missing = TestUtilities.fileData( frameCount: 2, dateTime: Self.startTicks )
-        let short   = TestUtilities.fileData( frameCount: 3, dateTime: Self.startTicks, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = Self.startTicks
+
+        let missing = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data
+
+        fields.frameCount = 3
+
+        let short = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks ] ).data
 
         try #require( throws: SERError.self ) { try SERFile( data: missing, options: .lenient.subtracting( .allowMissingTrailer ) ) }
         try #require( throws: SERError.self ) { try SERFile( data: short,   options: .lenient.subtracting( .allowShortTrailer ) ) }
@@ -504,7 +697,12 @@ struct Test_SERFile
         // The surplus entries are dropped from the end, so the timestamps kept
         // are the ones belonging to the frames that exist.
         let ticks = ( 0 ..< 5 ).map { Self.startTicks + Int64( $0 ) * 10_000_000 }
-        let data  = TestUtilities.fileData( frameCount: 2, dateTime: Self.startTicks, timestamps: ticks )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: ticks ).data
         let file  = try SERFile( data: data, options: .strict )
 
         let dates = file.timestamps.compactMap { $0 }
@@ -521,7 +719,12 @@ struct Test_SERFile
         // The specification ties the trailer to a positive start date, not to
         // one naming a representable instant. Reading an out-of-range date as
         // "no trailer" would put the trailer's bytes back in reach as frames.
-        let data = TestUtilities.fileData( frameCount: 2, dateTime: Int64.max, timestamps: [ Self.startTicks, Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = Int64.max
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks, Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .strict )
 
         #expect( file.hasTimestampTrailer == true )
@@ -536,7 +739,13 @@ struct Test_SERFile
         // is expressed as though it were UTC; only the UTC field names the true
         // instant.
         let utc  = Self.startTicks - ( 2 * 3600 * 10_000_000 )
-        let data = TestUtilities.fileData( frameCount: 1, dateTime: Self.startTicks, dateTimeUTC: utc, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount  = 1
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = utc
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .strict )
 
         let start   = try #require( file.startTime )
@@ -551,7 +760,13 @@ struct Test_SERFile
         // A capture machine two hours ahead of UTC gives a positive offset, and
         // adding it back to the instant reproduces the local reading.
         let utc  = Self.startTicks - ( 2 * 3600 * 10_000_000 )
-        let data = TestUtilities.fileData( frameCount: 1, dateTime: Self.startTicks, dateTimeUTC: utc, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount  = 1
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = utc
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .strict )
 
         let offset  = try #require( file.utcOffset )
@@ -565,8 +780,18 @@ struct Test_SERFile
     @Test
     func hasNoUTCOffsetWithoutBothStartTimes() async throws
     {
-        let noLocal = TestUtilities.fileData( frameCount: 1, dateTime: 0, dateTimeUTC: Self.startTicks )
-        let noUTC   = TestUtilities.fileData( frameCount: 1, dateTime: Self.startTicks, dateTimeUTC: 0, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount  = 1
+        fields.dateTime    = 0
+        fields.dateTimeUTC = Self.startTicks
+
+        let noLocal = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: nil ).data
+
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = 0
+
+        let noUTC = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks ] ).data
 
         #expect( try SERFile( data: noLocal, options: .strict ).utcOffset == nil )
         #expect( try SERFile( data: noUTC,   options: .strict ).utcOffset == nil )
@@ -579,7 +804,12 @@ struct Test_SERFile
         // invalid until masking is allowed, at which point the file does
         // declare a trailer after all.
         let raw   = Int64( bitPattern: UInt64( Self.startTicks ) | ( 1 << 63 ) )
-        let data  = TestUtilities.fileData( frameCount: 1, dateTime: raw, timestamps: [ Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 1
+        fields.dateTime   = raw
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks ] ).data
 
         let strict  = try SERFile( data: data, options: .strict )
         let lenient = try SERFile( data: data, options: .lenient )
@@ -595,7 +825,12 @@ struct Test_SERFile
     @Test
     func timestampsAreParsedOnceAndCached() async throws
     {
-        let data = TestUtilities.fileData( frameCount: 2, dateTime: Self.startTicks, timestamps: [ Self.startTicks, Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount = 2
+        fields.dateTime   = Self.startTicks
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks, Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .strict )
 
         #expect( file.cachedTimestamps == nil )
@@ -615,7 +850,13 @@ struct Test_SERFile
         // given different values here: a description reading the same field
         // twice would otherwise go unnoticed.
         let utc  = Self.startTicks - ( 2 * 3600 * 10_000_000 )
-        let data = TestUtilities.fileData( frameCount: 3, dateTime: Self.startTicks, dateTimeUTC: utc, timestamps: [ Self.startTicks, Self.startTicks, Self.startTicks ] )
+        var fields = TestUtilities.wellFormedHeader
+
+        fields.frameCount  = 3
+        fields.dateTime    = Self.startTicks
+        fields.dateTimeUTC = utc
+
+        let data = TestUtilities.File( header: fields, frames: fields.indexedFrames, timestamps: [ Self.startTicks, Self.startTicks, Self.startTicks ] ).data
         let file = try SERFile( data: data, options: .strict )
 
         let description  = file.description

@@ -538,7 +538,7 @@ fixtures only.
     <li><a href="#m3">Milestone 3 — File structure, frame index and timestamps</a> <span class="status status-completed">Completed</span></li>
 
     <li class="phase">Phase 2 — Pixel data</li>
-    <li><a href="#m4">Milestone 4 — Raw frame access and sample decoding</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m4">Milestone 4 — Raw frame access and sample decoding</a> <span class="status status-completed">Completed</span></li>
     <li><a href="#m5">Milestone 5 — Debayering: patterns, built-in implementation and delegation</a> <span class="status status-notstarted">Not started</span></li>
 
     <li class="phase">Phase 3 — Output</li>
@@ -1145,7 +1145,7 @@ rather than adjusting it again. Everything raised across the three rounds is fix
 <h3 class="phase-heading">Phase 2 — Pixel data</h3>
 
 <div class="milestone" id="m4">
-<h3>Milestone 4 — Raw frame access and sample decoding <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 4 — Raw frame access and sample decoding <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -1172,11 +1172,255 @@ for 16-bit data, and the fact that 16-bit SER samples are <em>unsigned</em>.
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-07</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first, in three cycles — the header's sample geometry, then <code>SERFrame</code>, then the
+frame collection — each one written as a test that was run and observed to fail before the API existed. Every
+decoding rule was checked against <code>Documentation/SER Doc V3b.pdf</code> directly rather than against this
+plan's summary of it. The suite grew from 126 to 170 tests, the last four added on review.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/SERFrame.swift</code> — the frame view: <code>index</code>, <code>header</code>,
+        <code>timestamp</code>, <code>rawData</code>, and <code>samples</code>, with both widening
+        implementations and the channel reordering.</li>
+    <li><code>SwiftSER/SERFrames.swift</code> — a <code>RandomAccessCollection</code> over a file's frames.</li>
+    <li><code>SwiftSERTests/SERFrame.swift</code>, <code>SwiftSERTests/SERFrames.swift</code>.</li>
+    <li><code>SwiftSER/SERHeader.swift</code> gained <code>bytesPerSample</code>, <code>samplesPerFrame</code>
+        and <code>sampleRange</code>; <code>SwiftSER/SERFile.swift</code> gained <code>frame(at:)</code>,
+        <code>frames</code> and <code>Sequence</code> conformance;
+        <code>SwiftSERTests/TestUtilities.swift</code> gained a builder taking explicit frame bytes.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>Alignment is exposed, not applied.</strong> <code>samples</code> hands back the stored container
+        untouched, as the plan's "non-normalized" requires, and <code>sampleRange</code> carries the alignment
+        rule instead: <code>(2^d - 1) &lt;&lt; (8 - d)</code> for the MSB-aligned band, <code>2^d - 1</code> for
+        the LSB-aligned one. Shifting during decode would have made the samples no longer the file's.</li>
+    <li><strong><code>sampleRange</code> is what a conforming file stores, not a bound on
+        <code>samples</code>.</strong> Nothing in the format records whether a writer really zeroed the bits its
+        declared depth leaves over, and there is nothing to validate them against, so a 4-bit frame holding
+        <code>0xFF</code> decodes to 255 against a range of <code>0...240</code>. Documented as a bound to clamp
+        against and pinned by a test, rather than papered over by clamping the samples, which would silently
+        alter pixel values.</li>
+    <li><strong>An undefined depth takes the widest range of its band.</strong> A depth field that means nothing
+        bounds nothing, and the file's bytes still run to 255 or 65535, so narrowing the range would advertise a
+        bound guaranteed to be exceeded.</li>
+    <li><strong>Frames are struct views, decoded on each access.</strong> <code>SERFrame</code> holds a slice of
+        the file's storage — <code>rawData.startIndex</code> is the frame's offset in the file, not zero, which
+        two tests pin — and decodes nothing until asked. Nothing is cached, so the result is worth holding on
+        to; caching would have meant a reference box for what is otherwise a value.</li>
+    <li><strong>The short-data path throws rather than trapping.</strong> A frame obtained from a
+        <code>SERFile</code> always holds its bytes, since the payload was measured at parse time, but
+        <code>samples</code> checks anyway and reports <code>invalidFrameData</code>. The guard is written as
+        what the unsafe reads need — one container per sample — rather than as <code>bytesPerFrame</code>, so
+        the pointer code is bounded by the guard alone.</li>
+    <li><strong>The frame slice is taken with bounded index arithmetic.</strong>
+        <code>SERFile.frameData(at:)</code> walks the range with <code>index(_:offsetBy:limitedBy:)</code>, so a
+        broken invariant would yield a short slice — which <code>samples</code> then rejects — instead of
+        trapping.</li>
+    <li><strong>16-bit containers are assembled into a scratch allocation.</strong> A byte pair is read with
+        <code>loadUnaligned</code> and converted through <code>UInt16(littleEndian:)</code> /
+        <code>UInt16(bigEndian:)</code>, which is correct on either host and needs no alignment. The containers
+        live in a <code>withUnsafeTemporaryAllocation</code> buffer rather than an array, since they are an
+        intermediate of one call and run to twice the sample count in bytes.</li>
+    <li><strong><code>SERFrames</code> is its own type</strong> rather than a <code>LazyMapCollection</code>,
+        so the public API and its documentation name something readable. Its subscript preconditions on the
+        index, as every <code>Collection</code>'s does; <code>SERFile.frame(at:)</code> is the throwing way in.</li>
+    <li><strong>The <code>Sequence</code> conformance costs two qualifications.</strong> It brings
+        <code>Sequence</code>'s own <code>min</code>/<code>max</code> into the type's scope, so two existing call
+        sites in <code>SERFile</code> now say <code>Swift.min</code> / <code>Swift.max</code>. The failure mode
+        is a compile error, and the constraint is documented on the extension.</li>
+    <li><strong>Both new types describe themselves, in the form that suits them.</strong> Added on review:
+        <code>SERFrame</code> takes the braced multi-line form of the record types, reporting its index,
+        timestamp and sizes but not its header; <code>SERFrames</code> takes the one-line form of the value
+        types. <code>SERHeader.description</code> gained the milestone's three new derived members, ordered
+        smallest unit upwards among the existing ones.</li>
+</ul>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 170 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>; <code>xcodebuild docbuild</code> — clean. Both
+reviewers independently re-ran all four. The second fuzzed roughly 2900 parseable files across four option sets
+in both configurations, asserting the sample count, unsignedness and path equivalence, with no trap and no
+mismatch, and killed 11 of 12 mutations; the first fuzzed 4000 with the same result. Neither found a way to read
+out of bounds.
+</p>
+
+<p>
+The two performance findings were measured before and after, at 1920×1080 in Release, with the results consumed
+so nothing could be optimized away:
+</p>
+
+<div class="scroll">
+<table>
+    <tr><th>Case</th><th>Before</th><th>After</th></tr>
+    <tr><td>MONO 8-bit</td><td>0.41 ms/frame</td><td>0.34 ms/frame</td></tr>
+    <tr><td>MONO 16-bit</td><td>3.95 ms/frame</td><td>1.04 ms/frame</td></tr>
+    <tr><td>BGR 8-bit</td><td>4.57 ms/frame</td><td>2.47 ms/frame</td></tr>
+    <tr><td><code>frame(at: 0)</code>, 20 000-frame file with a trailer</td><td>1.30 ms</td><td>0.001 ms</td></tr>
+</table>
+</div>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each by a fresh sub-agent with no prior context, both verifying against the V3 PDF and using fuzzing
+and mutation testing rather than inspection. Round 1 raised five <em>Medium</em> findings, all fixed; round 2 —
+told to take none of those fixes on trust — confirmed them and reported <strong>no Critical, High or Medium
+findings</strong>, so the loop converged. Neither round found a correctness, memory-safety, overflow or crash
+defect, both confirmed the decode against the specification on all three traps the milestone set out to own, and
+both confirmed no regressions: the existing public API is unchanged and all 126 pre-existing tests still pass.
+</p>
+
+<p><strong>Round 1 — five Medium findings, all fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — <code>sampleRange</code> was documented as a bound on <code>samples</code>, which it is
+        not.</strong> The padding bits of a sub-byte depth are not validated, so a valid file parsed under
+        <code>.strict</code> produced samples above the advertised maximum — 12 924 of them in the reviewer's
+        fuzz run. <em>Fixed</em> by stating the contract precisely and pinning it with
+        <code>decodesPaddingBitsTheSpecificationSaysAreZero</code>, rather than by clamping the samples.</li>
+    <li><strong>Medium — <code>sampleRange</code> contradicted its own documentation below depth 1.</strong> The
+        text promised the band's widest range; the code clamped to its narrowest, so depth 0 read
+        <code>0...128</code>. <em>Fixed</em>, and the narrow value was the worse of the two anyway.</li>
+    <li><strong>Medium — the five new table-driven tests could pass vacuously.</strong> Emptying two of the
+        tables left them green, against a convention this project adopted deliberately in Milestone 2.
+        <em>Fixed</em>: the tables are <code>static let</code>s guarded by
+        <code>everySampleGeometryTableIsListed</code> and <code>everyDecodingTableIsListed</code>.</li>
+    <li><strong>Medium — <code>frame(at:)</code> parsed the whole timestamp trailer.</strong> Looking at one
+        frame of a 20 000-frame capture built 20 000 <code>Date</code>s. <em>Fixed</em> with a private
+        single-entry reader that <code>parseTimestamps()</code> now maps over, and pinned by
+        <code>aFrameAndTheFileAgreeOnEveryTimestamp</code>, since the two are now separate readers of the same
+        bytes.</li>
+    <li><strong>Medium — the 16-bit decode was bottlenecked by its <code>[UInt16]</code> intermediate</strong>,
+        making it 12× slower than 8-bit and allocating a full extra buffer. <em>Fixed</em> with a scratch
+        allocation and <code>loadUnaligned</code>.</li>
+    <li><strong>Low/Info</strong> — <code>rawData</code>'s file-relative indices were undocumented
+        (<em>fixed</em>); <code>assumingMemoryBound</code> where <code>bindMemory</code> is the sanctioned API
+        (<em>fixed</em>); the BGR reorder copied the whole sample array (<em>fixed</em>, in place); a test
+        comment had field 4's polarity backwards (<em>fixed</em>); <code>SERFrame</code> and
+        <code>SERFrames</code> lack <code>CustomStringConvertible</code> (<em>deferred</em>);
+        <code>SERHeader.description</code> omits the new members (<em>deferred</em>); the
+        <code>SERFrames</code> subscript funnels any error into <code>preconditionFailure</code>
+        (<em>deferred</em>); the <code>% 3</code> guard is unreachable (<em>deferred</em>, deliberately); nothing
+        pins that <code>samples</code> uses the accelerated path (<em>deferred</em>). Two suggested tests were
+        added: 16-bit BGR big-endian, and parsing from a sliced <code>Data</code>.</li>
+</ul>
+
+<p><strong>Round 2 — no Critical, High or Medium findings</strong></p>
+
+<ul>
+    <li><strong>Low — the decode's bounds rested on an invariant stated nowhere it was used.</strong> The guard
+        read <code>bytesPerFrame</code> while the loops read <code>samplesPerFrame × bytesPerSample</code>; the
+        two are equal only because the band rule is written twice. Since
+        <code>loadUnaligned</code>'s own check is debug-only, a broken invariant would be a silent
+        out-of-bounds read in Release. <em>Fixed</em>: the guard now states what the unsafe reads need, with the
+        multiplication checked for overflow.</li>
+    <li><strong>Low — <code>fill</code> assigned into uninitialized memory</strong> rather than initializing it,
+        which is formally undefined even though it is benign for <code>UInt16</code>. <em>Fixed</em> with
+        <code>initializeElement(at:to:)</code>.</li>
+    <li><strong>Low — <code>sampleRange</code>'s name still promises the bound its documentation
+        withdraws.</strong> <em>Deferred</em> — a public rename is the user's call.</li>
+    <li><strong>Low — <code>SERHeader.description</code> omits the three new derived members</strong>, breaking
+        its own precedent of listing derived geometry. <em>Deferred</em>; both reviewers agree it should be
+        added.</li>
+    <li><strong>Info — <code>SERFrame</code>'s doc claimed nothing is examined until <code>samples</code> is
+        asked for</strong>, while <code>frame(at:)</code> reads the frame's trailer entry (~65 ns). <em>Fixed</em>
+        by saying no <em>pixel</em> data is examined.</li>
+    <li><strong>Info — the <code>Sequence</code> conformance permanently shadows the global
+        <code>min</code>/<code>max</code></strong> inside the type. <em>Fixed</em> by documenting the constraint
+        on the extension; whether the conformance earns its keep is <em>deferred</em>.</li>
+    <li><strong>Info</strong> — <code>SERFrame</code>/<code>SERFrames</code> lack
+        <code>CustomStringConvertible</code>, raised independently (<em>deferred</em>); nothing pins that
+        <code>samples</code> takes the accelerated path (<em>deferred</em>, an equivalent mutant); no 8-bit test
+        uses <code>littleEndian: 0</code> (<em>deferred</em>, structurally unreachable); the
+        <code>SERFrames</code> subscript discards the error it reports on (<em>deferred</em>); the two
+        <code>TestUtilities.fileData</code> overloads carry different geometry defaults (<em>deferred</em>).</li>
+    <li><strong>Explicitly cleared by round 2</strong>: the <code>withUnsafeTemporaryAllocation</code> buffer's
+        length is exactly its capacity, so <code>loadUnaligned</code> cannot reach past the frame; the byte-order
+        conversion is correct on a big-endian host as well; <code>bindMemory</code> is the right call; the
+        unreachable <code>nil</code>-<code>baseAddress</code> branches cannot be reached; large allocations fall
+        back to the heap, confirmed by decoding a 32 MiB frame.</li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Add <code>CustomStringConvertible</code> to <code>SERFrame</code> and <code>SERFrames</code>, rather
+        than leaving them the only public types in the library without it.
+        <br><br>
+        <em>Addressed.</em> <code>SERFrame</code> takes the multi-line braced form <code>SERHeader</code> and
+        <code>SERFile</code> use, listing the frame's own facts — index, timestamp, byte and sample counts —
+        and not the header, whose own multi-line description nested inside another would read worse than the
+        reflection dump the conformance exists to replace. <code>SERFrames</code> takes the short form
+        <code>SERColorID</code> and <code>SERTimestamp</code> use, since a collection with one fact to report
+        does not need braces.</li>
+
+    <li>Add the three new derived members to <code>SERHeader.description</code>, which already lists the
+        derived geometry.
+        <br><br>
+        <em>Addressed.</em> <code>Bytes Per Sample</code>, <code>Samples Per Frame</code> and
+        <code>Sample Range</code> now appear, ordered smallest unit upwards alongside the existing rows.</li>
+
+    <li>Asked what the recommendation is on renaming <code>sampleRange</code>, which round 2 argued still
+        promises the bound its documentation withdraws. Answered: keep the name. The range genuinely is the
+        sample range for every conforming file, the caveat is about input the format cannot describe, and no
+        alternative name carries it either — a caller who would not read the doc comment would not read
+        <code>nominal</code> as "clamp this" either. The real defence is that Milestone 6 clamps, which is
+        recorded as a task for it. No change made.</li>
+
+    <li>Asked why nothing pins that <code>samples</code> takes the accelerated path. Answered: the two widening
+        implementations return byte-identical results, which is itself asserted and fuzzed, so no test that
+        looks at values can tell which one the public property selected — only one that looks at timing, which
+        is flaky, or at which code ran, which means production code existing solely to be observed. Flipping the
+        selector costs a 3.8× slowdown, never a wrong pixel. No change made.</li>
+
+    <li>Asked why the two <code>TestUtilities.fileData</code> overloads carry different geometry defaults, and
+        then why the builders have default arguments at all rather than mandatory ones. Answered with the
+        rationale inherited from Milestone 2 — thirteen header fields, of which a given test cares about one —
+        and with the concrete cost: assertions such as <code>byteOffset(ofFrame: 1) == 178 + 8</code> depend on
+        a frame size derived from geometry the test never shows.
+        <br><br>
+        <em>Decided: remove the defaults.</em> They hide the values assertions are built on, and two same-named
+        overloads disagreeing about them is the same fault twice.
+        <br><br>
+        <em>Addressed.</em> The sweep found the library target has no default argument anywhere; all 31 were in
+        <code>TestUtilities</code>, across three builders feeding 134 call sites. Spelling thirteen fields at
+        every call would have cost about a thousand lines and buried each test's subject, so the baseline became
+        a named value instead of a signature: a <code>Header</code> struct with a memberwise initializer,
+        <code>TestUtilities.wellFormedHeader</code> as the one place its valid values are written down, and a
+        <code>File</code> struct pairing a header with the frames and trailer the file actually holds. Every
+        call site now starts from the baseline and states what it varies, and the frame-count reconciliation
+        tests read better for it — a header declaring four frames beside a file holding two, rather than
+        <code>framesPresent: 2</code>.
+        <br><br>
+        The two builders were byte-identical to what replaced them: a sweep over 32 400 combinations of color
+        ID, depth, geometry, frame count, frames written, trailer and byte order asserted the old and new
+        fixtures produce the same bytes, and was deleted once it had. All 170 tests still pass.</li>
+
+    <li>Keep the <code>sampleRange</code> name as recommended, and fix the stale first line left on
+        <code>maximumTimeZoneOffset</code>'s documentation by an earlier milestone. Everything else approved as
+        implemented.
+        <br><br>
+        <em>Addressed.</em> The leftover abstract — <em>"The number of whole frames a payload of a given length
+        can hold"</em>, describing a function that no longer follows it — was removed, leaving the property's
+        own description. No other change.</li>
+</ul>
+</div>
 </div>
 
 <div class="milestone" id="m5">

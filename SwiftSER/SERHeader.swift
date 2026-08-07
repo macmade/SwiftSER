@@ -177,6 +177,63 @@ public struct SERHeader: Sendable, CustomStringConvertible
         self.colorID.numberOfPlanes
     }
 
+    /// The number of bytes a single sample occupies, for one plane.
+    ///
+    /// One byte for a depth of 1 to 8, two for 9 to 16 — the same two bands
+    /// ``bytesPerPixel`` uses, before the planes a pixel interleaves. A depth
+    /// the specification does not define falls into the band its value places
+    /// it in: at most 8 reads as one byte, anything larger as two.
+    public var bytesPerSample: Int
+    {
+        self.pixelDepthPerPlane <= 8 ? 1 : 2
+    }
+
+    /// The number of samples a single frame holds, across every plane.
+    ///
+    /// ``imageWidth`` × ``imageHeight`` × ``numberOfPlanes``, which is the
+    /// length of the array ``SERFrame/samples`` decodes to. Derived by dividing
+    /// ``bytesPerFrame``, which is already known not to overflow, rather than
+    /// multiplying the geometry a second time.
+    public var samplesPerFrame: Int
+    {
+        self.bytesPerFrame / self.bytesPerSample
+    }
+
+    /// The range of values a sample of a *conforming* file takes.
+    ///
+    /// Samples are unsigned, so the range starts at zero. Its upper bound
+    /// follows the specification's asymmetric alignment rules, and is what
+    /// image and movie output scale against:
+    ///
+    /// - A depth of 1 to 8 is stored *MSB-aligned* within its byte, so a
+    ///   sample of `d` bits reaches `(2^d - 1) << (8 - d)` — already near full
+    ///   scale, and exactly 255 at 8 bits.
+    /// - A depth of 9 to 16 is stored *LSB-aligned* within its two bytes, so a
+    ///   sample of `d` bits reaches `2^d - 1` and occupies only the bottom of
+    ///   the 16-bit container. A 12-bit frame therefore stops at 4095 of 65535,
+    ///   and renders at roughly 6% brightness if it is not scaled.
+    ///
+    /// A depth outside `1...16`, admitted only through
+    /// ``SERParsingOptions/allowOutOfRangePixelDepth``, has no range of its own
+    /// and takes the widest one of the band ``bytesPerSample`` forced it into,
+    /// since a depth field that means nothing bounds nothing.
+    ///
+    /// - Important: This is what the specification says a file stores, not a
+    ///   bound on what ``SERFrame/samples`` returns. Nothing in the format
+    ///   records whether a writer really zeroed the bits its declared depth
+    ///   leaves over, and the padding is not validated, so a sample can come
+    ///   back above the upper bound — a 4-bit frame holding `0xFF` decodes to
+    ///   255 against a range of `0...240`. Anything scaling by this range has
+    ///   to clamp its result.
+    public var sampleRange: ClosedRange< Double >
+    {
+        let band  = self.bytesPerSample == 1 ? 1 ... 8 : 9 ... 16
+        let depth = band.contains( Int( self.pixelDepthPerPlane ) ) ? Int( self.pixelDepthPerPlane ) : band.upperBound
+        let shift = self.bytesPerSample == 1 ? 8 - depth : 0
+
+        return 0 ... Double( ( ( 1 << depth ) - 1 ) << shift )
+    }
+
     /// The mosaic laid over the sensor, or `nil` when frames are not a mosaic.
     public var bayerPattern: SERBayerPattern?
     {
@@ -394,8 +451,11 @@ public struct SERHeader: Sendable, CustomStringConvertible
             Start Time:            \( self.dateTime )
             Start Time UTC:        \( self.dateTimeUTC )
             Number Of Planes:      \( self.numberOfPlanes )
+            Bytes Per Sample:      \( self.bytesPerSample )
             Bytes Per Pixel:       \( self.bytesPerPixel )
             Bytes Per Frame:       \( self.bytesPerFrame )
+            Samples Per Frame:     \( self.samplesPerFrame )
+            Sample Range:          \( self.sampleRange )
             Timestamp Trailer:     \( self.declaresTimestampTrailer ? "Yes" : "No" )
         }
         """
