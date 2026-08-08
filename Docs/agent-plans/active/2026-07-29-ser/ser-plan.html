@@ -542,7 +542,7 @@ fixtures only.
     <li><a href="#m5">Milestone 5 — Debayering: patterns, built-in implementation and delegation</a> <span class="status status-completed">Completed</span></li>
 
     <li class="phase">Phase 3 — Output</li>
-    <li><a href="#m6">Milestone 6 — CGImage export</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m6">Milestone 6 — CGImage export</a> <span class="status status-completed">Completed</span></li>
     <li><a href="#m7">Milestone 7 — Movie export</a> <span class="status status-notstarted">Not started</span></li>
 
     <li class="phase">Phase 4 — Validation and documentation</li>
@@ -1753,7 +1753,7 @@ existing public API is unchanged and all 170 pre-existing tests still pass.
 <h3 class="phase-heading">Phase 3 — Output</h3>
 
 <div class="milestone" id="m6">
-<h3>Milestone 6 — CGImage export <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 6 — CGImage export <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -1777,11 +1777,239 @@ scaled so that a 10-, 12- or 14-bit capture is not displayed nearly black.
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-08</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first: the tests were written and run, and the compiler's rejection of an API that did not
+exist yet was observed, before any of it was written — the red phase this project has taken since Milestone 1.
+The suite grew from 201 to 233 tests.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/Imaging/SERFrame+CGImage.swift</code> — <code>SERFrame/cgImage(scaled:)</code> and, in a
+        second <code>internal</code> extension, the rendering both entry points share: the color-space choice,
+        the bitmap layout, the sample-to-component conversion and the <code>CGImage</code> construction.</li>
+    <li><code>SwiftSER/Imaging/SERFile+CGImage.swift</code> — <code>SERFile/cgImage(ofFrame:scaled:)</code>,
+        which debayers first.</li>
+    <li><code>SwiftSERTests/SERFrame+CGImage.swift</code>, <code>SwiftSERTests/SERFile+CGImage.swift</code>.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>The layouts were verified against Core Graphics itself, not against the pixel-format table.</strong>
+        The table the milestone points at — Quartz 2D's <em>Supported Pixel Formats</em> — describes what a
+        <code>CGBitmapContext</code> accepts, which is a different question and does not list 24 bpp RGB, exactly
+        as the task text warns. <code>CGImageCreate</code> is the more permissive of the two: gray 8/8, gray
+        16/16, RGB 8/24 and RGB 16/48, all with <code>kCGImageAlphaNone</code>, were each created, drawn through a
+        context and exported to PNG before being committed to. Both reviewers reproduced this independently, and
+        the second confirmed the other half of the claim by showing that a <code>CGContext</code> does reject the
+        24 and 48 bpp layouts. That is what lets three planes be handed over without inventing an alpha channel
+        to pad them.</li>
+    <li><strong>The output keeps the file's component width</strong> — eight bits for a depth of 1 to 8, sixteen
+        for 9 to 16 — so a 16-bit capture is not quantized on the way out. Sixteen-bit components are written in
+        the host's byte order and the image declares <code>order16Host</code>; the file's own byte order was
+        already resolved by <code>SERFrame/samples</code>, so the image never inherits it.</li>
+    <li><strong>Scaling maps <code>sampleRange</code> to full scale, and clamps.</strong> This is where Milestone
+        4's deferred finding is answered: <code>sampleRange</code> is documented as what a <em>conforming</em>
+        file stores rather than a bound on what <code>samples</code> returns, since the padding bits of a
+        sub-byte depth are not validated, and the recorded answer at the time was "Milestone 6 clamps". It does —
+        and the clamp is also what makes the conversion total, since a <code>Double</code> outside a component's
+        range traps on conversion.</li>
+    <li><strong>A sample that is not a number renders black.</strong> Reachable only through a consumer's own
+        <code>SERDebayering</code>, whose result the library does not otherwise inspect. It has to be answered
+        for before the clamp rather than by it: <code>min</code> and <code>max</code> both pass a NaN straight
+        through, so clamping alone would leave the conversion trapping. The infinities need no special case —
+        clamping resolves them to the ends of the range.</li>
+    <li><strong>Debayering stays on <code>SERFile</code>, so the two entry points differ.</strong>
+        <code>SERFrame/cgImage(scaled:)</code> renders the planes the frame physically holds, which for a mosaic
+        is one gray plane — the picture to reach for when inspecting a raw mosaic, and documented as such under
+        <code>- Important:</code>. <code>SERFile/cgImage(ofFrame:scaled:)</code> resolves the mosaic first. This
+        follows Milestone 5, which put the configuration on the file and kept <code>SERFrame</code> a
+        <code>Sendable</code> value holding no reference to it. Both share one renderer, so there is no second
+        implementation to drift.</li>
+    <li><strong>Two files rather than the one the task lists.</strong> The <code>SERFile</code> convenience went
+        into its own <code>Imaging/SERFile+CGImage.swift</code> rather than into
+        <code>SERFrame+CGImage.swift</code>, keeping one type per file, and out of
+        <code>SERFile.swift</code>, keeping the core Foundation-only in fact as well as in effect.</li>
+    <li><strong>Device color spaces.</strong> One plane renders into <code>DeviceGray</code> and three into
+        <code>DeviceRGB</code>, because the format records no colorimetry at all — naming a calibrated space
+        would be inventing one. Any other plane count is rejected rather than guessed at.</li>
+    <li><strong><code>scaled</code> is a required argument, not a defaulted one.</strong> The appendix describes
+        image output as scaling "by default", but the library has no default argument anywhere, which Milestone
+        4's review established deliberately. Requiring the caller to say which they want is the reading that
+        keeps that rule; it is a divergence from the appendix's wording and is recorded here.</li>
+</ul>
+
+<div class="note">
+<strong>The conversion was measured rather than assumed, and the fastest option was not the right one.</strong>
+Turning samples into components is a per-frame cost comparable to debayering itself, so three implementations
+were measured at 3840×2160 in Release. Building an array and copying it into the <code>Data</code> — the first
+version — cost 72.6 ms for an 8-bit RGB frame. A vDSP pipeline
+(<code>vDSP_vsmulD</code> + <code>vDSP_vclipD</code> + <code>vDSP_vfixru16D</code>) was the fastest, but it
+rounds to nearest <em>even</em> where the scalar path rounds away from zero — 0.5 reads as 0 and 2.5 as 2 —
+which would have broken the byte-identical-paths invariant Milestones 4 and 5 established, and would have made
+the result depend on the ambient floating-point rounding mode. Writing straight into the <code>Data</code>'s
+storage through <code>storeBytes</code> instead gave 22.5 ms, bit-identical to what it replaced and with no
+second implementation to keep in sync.
+
+<br><br>
+
+<code>storeBytes</code> rather than binding the memory to <code>UInt16</code>: SE-0349 removed the alignment
+requirement from it, which matters because a <code>Data</code> short enough to be stored inline hands out an
+address aligned for a byte and nothing more. Confirmed against the proposal and by storing at a deliberately
+odd offset. The same reasoning was then applied to the test helpers, which read the components back through
+<code>loadUnaligned</code>, as <code>SERFrame</code> already reads a frame's own containers.
+</div>
+
+<div class="scroll">
+<table>
+    <tr><th>3840×2160, Release, per frame</th><th>Array and copy</th><th><code>storeBytes</code></th></tr>
+    <tr><td>MONO 8-bit</td><td>24.9 ms</td><td>7.4 ms</td></tr>
+    <tr><td>MONO 16-bit</td><td>26.8 ms</td><td>8.5 ms</td></tr>
+    <tr><td>RGB 8-bit</td><td>72.6 ms</td><td>22.5 ms</td></tr>
+    <tr><td>RGB 16-bit</td><td>65.5 ms</td><td>25.5 ms</td></tr>
+    <tr><td>RGGB, debayered</td><td>54.7 ms</td><td>22.3 ms</td></tr>
+</table>
+</div>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 233 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>; <code>xcodebuild docbuild</code> — clean, with
+every documentation link resolving. Both build systems were confirmed to run the <em>same</em> 233 cases by
+comparing their test names: a raw count of the <code>xcodebuild</code> stream reads 232, because four names
+occur in two suites each and because parallel test output occasionally splits a line — the test that appears
+missing is present in the same log when searched for by name. The second reviewer additionally ran the whole
+suite under ASan and UBSan, both clean.
+</p>
+
+<p>
+The Xcode registration was proved rather than read: <code>nm -gU</code> on the built framework finds both
+entry points, and the generated <code>.swiftinterface</code> exposes exactly the two public methods, with the
+shared renderer correctly <code>internal</code>. The second reviewer checked all 150 identifiers in the project
+file for duplicates and dangling references and found none.
+</p>
+
+<p>
+Across the two rounds the conversion was fuzzed over 4 000 random files spanning all eleven color IDs, depths 1
+to 16, both byte orders and both scaling settings, compared byte for byte against an independently written
+reference, with no mismatch; the scaling was checked for every depth against every representable container
+value; and NaN, signalling NaN, the infinities, <code>greatestFiniteMagnitude</code>, denormals and 2 000
+random bit patterns were pushed through a consumer debayering without a trap. Twenty-nine mutations of the
+production code were run in round 2 — byte order, bits per pixel, bits per component, both color-space cases,
+the rounding rule, the clamp, the scaling factor, the NaN guard, the plane count — and every one was killed.
+</p>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each by a fresh sub-agent with no prior context, both verifying against the SDK and the V3 PDF and
+using mutation testing and differential fuzzing rather than inspection. Round 1 raised one <em>Medium</em>,
+which was fixed; round 2 — told to take none of those fixes on trust and to re-derive everything — confirmed
+them and reported <strong>no Critical, High or Medium findings</strong>, so the loop converged. Neither round
+found a correctness, memory-safety, overflow or crash defect, and both confirmed no regressions: no existing
+source or test file was touched, the public API is unchanged apart from the two additions, and the test count
+rose by exactly the number of tests added.
+</p>
+
+<p><strong>Round 1 — one Medium, fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — the tests could not tell a wrong bitmap layout from a right one.</strong> Both helpers
+        read the image's data provider, which hands back the bytes the code passed <em>in</em>, so nothing asked
+        Core Graphics to interpret them: the reviewer proved it by flipping <code>order16Host</code> to
+        <code>order16Big</code> and watching all 227 tests stay green while every 16-bit image rendered
+        byte-swapped. That is precisely the layout the milestone's task text says to verify. <em>Fixed</em>: four
+        tests now draw the image through a <code>CGBitmapContext</code> and assert what comes out, and one
+        round-trips every layout through PNG — the two things a consumer actually does. Re-running the same
+        mutation now fails <code>drawsASixteenBitGrayFrameInTheDeclaredByteOrder</code>. The drawn values are
+        asserted as bright and dark rather than exactly, since drawing device gray into device RGB is a color
+        conversion and 255 comes back as 254.</li>
+    <li><strong>Low — the test helpers bound <code>Data</code> bytes to <code>UInt16</code></strong>, assuming
+        the alignment the production code deliberately does not. <em>Fixed</em>: read through
+        <code>loadUnaligned</code>.</li>
+    <li><strong>Low — a helper parsed with <code>.lenient</code> where <code>.strict</code> suffices</strong>,
+        silently tolerating an out-of-range depth the rest of the suite assumes valid. <em>Fixed.</em></li>
+    <li><strong>Low — two constants were computed <code>static var</code>s</strong> rather than
+        <code>static let</code>, unlike every other constant in the library. <em>Fixed.</em></li>
+    <li><strong>Info</strong> — a redundant inner <code>try</code> (<em>fixed</em>); the unreachable size guard
+        sharing one misleading message with the reachable provider check (<em>fixed</em>: split, each with its
+        own reason); no scaled test covered three planes (<em>fixed</em>); the scalar conversion is not
+        Accelerate-backed unlike the library's other pixel loops (<em>deferred</em>, see round 2); and a
+        suggestion to avoid the <code>Data</code> zero-fill with
+        <code>Data(unsafeUninitializedCapacity:initializingWith:)</code> — <em>not actionable</em>, since
+        <code>Data</code> has no such initializer, as the compiler confirms by resolving the call to
+        <code>Data(contentsOf:)</code>; it is an <code>Array</code> API, and routing through an array costs the
+        copy that was just measured away.</li>
+</ul>
+
+<p><strong>Round 2 — no Critical, High or Medium findings</strong></p>
+
+<ul>
+    <li><strong>Low — a mistyped row in a scaling table would have taken the whole run down.</strong> The
+        expectation was built by converting the table's <code>Int</code> column to the component's own type, so
+        a row of 300 trapped inside <code>UInt8.init</code> and aborted the process before the run summary,
+        reporting nothing for the other tests — the same failure mode this project fixed in Milestone 3 and
+        again in Milestone 5. <em>Fixed</em>: compared as <code>Int</code>. Re-running the reviewer's mutation
+        now gives two clean failures and a full summary.</li>
+    <li><strong>Low — <code>rejectsAPlaneCountNoColorSpaceDescribes</code> did not pin the guard it is named
+        for.</strong> Making the color-space helper return gray for any plane count left the suite green,
+        because Core Graphics then refused the 8-bpc/16-bpp gray layout on its own and the test only asserted
+        the error's type. <em>Fixed</em>: it now asserts the reason, and the mutation is caught.</li>
+    <li><strong>Info — <code>everyImageTableIsListed</code> listed one column per table.</strong> Anti-vacuity
+        already held — the reviewer confirmed dropping a row from any table fails it — but the unlisted columns
+        were where the mistyped row above could hide. <em>Fixed</em>: the scaled and unscaled columns are now
+        listed too.</li>
+    <li><strong>Info — a doc comment recorded what the author did rather than what the code is</strong>
+        ("confirmed … before being relied on"), against this project's rule that comments describe the code as
+        it currently is. <em>Fixed</em>: it now points at the tests that hold the claim.</li>
+    <li><strong>Info — <code>components(of:range:bytesPerSample:scaled:)</code> had an undocumented 1-or-2
+        precondition</strong> (<em>fixed</em>), and two assertion blocks broke the aligned-<code>==</code>
+        convention (<em>fixed</em>).</li>
+    <li><strong>Info — a vDSP conversion measured about 1.6× the scalar loop</strong> (10.6 ms against 17 ms on a
+        4096×4096 12-bit frame), but needs a <code>Double</code> scratch buffer the size of the frame — 128 MB
+        there — against a milestone that already warns about materializing frames. The reviewer recommended
+        <em>no change</em>. <em>Deferred</em>; worth revisiting for Milestone 7's per-frame encode.</li>
+    <li><strong>Info — <code>shouldInterpolate</code> and <code>intent</code> are pinned by no test.</strong>
+        Neither affects a pixel value. <em>Deferred</em> — pinning them would mean asserting a presentation
+        choice rather than a behavior.</li>
+    <li><strong>Info — <code>Package.swift</code> still declares no <code>platforms:</code></strong>, so SPM
+        builds the library against a far older deployment target than the Xcode project's macOS 15. Nothing here
+        breaks. Pre-existing, and already scheduled as Milestone 7's first task. <em>Carried forward.</em></li>
+    <li><strong>Explicitly cleared by round 2</strong>: every substantive documentation claim was checked and
+        found true, including the 6% figure, the alignment rules, "nothing the file stores is quantized away"
+        (the scaling map is injective at every depth), "a sample range always reaches at least 128", the
+        CGImage-versus-CGBitmapContext claim, and "holding its own copy of the pixels"; the two guards whose
+        removal survives mutation were confirmed to be each other's backstop, which is what their comments
+        claim; and the division of responsibility between the two entry points was confirmed coherent,
+        documented on both sides and pinned by tests.</li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Approved as implemented, with no changes requested. The three deferred <code>Info</code> findings were
+        surfaced at the pause — the vDSP conversion the second reviewer measured at about 1.6× but recommended
+        against, since it needs a <code>Double</code> scratch buffer the size of the frame;
+        <code>shouldInterpolate</code> and <code>intent</code> being pinned by no test, neither of which affects
+        a pixel value; and <code>Package.swift</code> declaring no <code>platforms:</code>, which is
+        pre-existing and already Milestone 7's first task — and were accepted as-is rather than fixed.</li>
+    <li>The four decisions surfaced with them were accepted as implemented: splitting the work across two files
+        rather than the one the task lists, <code>scaled</code> being a required argument rather than the
+        appendix's "by default", a mosaic frame's own image being the undebayered gray plane, and the device
+        color spaces.</li>
+</ul>
+</div>
 </div>
 
 <div class="milestone" id="m7">

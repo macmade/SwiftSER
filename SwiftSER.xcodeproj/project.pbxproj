@@ -34,6 +34,10 @@
 		05E50013301A32C300E89E15 /* SERDebayering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E50003301A32C300E89E15 /* SERDebayering.swift */; };
 		05E50014301A32C300E89E15 /* SERBilinearDebayering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E50004301A32C300E89E15 /* SERBilinearDebayering.swift */; };
 		05E50015301A32C300E89E15 /* SERDebayerFailurePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E50005301A32C300E89E15 /* SERDebayerFailurePolicy.swift */; };
+		05E60011301A32C300E89E15 /* SERFile+CGImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E60001301A32C300E89E15 /* SERFile+CGImage.swift */; };
+		05E60012301A32C300E89E15 /* SERFrame+CGImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E60002301A32C300E89E15 /* SERFrame+CGImage.swift */; };
+		05E60013301A32C300E89E15 /* SERFile+CGImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E60004301A32C300E89E15 /* SERFile+CGImage.swift */; };
+		05E60014301A32C300E89E15 /* SERFrame+CGImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E60005301A32C300E89E15 /* SERFrame+CGImage.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +80,10 @@
 		05E50003301A32C300E89E15 /* SERDebayering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERDebayering.swift; sourceTree = "<group>"; };
 		05E50004301A32C300E89E15 /* SERBilinearDebayering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERBilinearDebayering.swift; sourceTree = "<group>"; };
 		05E50005301A32C300E89E15 /* SERDebayerFailurePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SERDebayerFailurePolicy.swift; sourceTree = "<group>"; };
+		05E60001301A32C300E89E15 /* SERFile+CGImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SERFile+CGImage.swift"; sourceTree = "<group>"; };
+		05E60002301A32C300E89E15 /* SERFrame+CGImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SERFrame+CGImage.swift"; sourceTree = "<group>"; };
+		05E60004301A32C300E89E15 /* SERFile+CGImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SERFile+CGImage.swift"; sourceTree = "<group>"; };
+		05E60005301A32C300E89E15 /* SERFrame+CGImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SERFrame+CGImage.swift"; sourceTree = "<group>"; };
 		052BACA1301A32D000E89E15 /* CODE_OF_CONDUCT.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CODE_OF_CONDUCT.md; sourceTree = "<group>"; };
 		052BACA2301A32D000E89E15 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		052BACA3301A32D000E89E15 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -173,6 +181,7 @@
 			isa = PBXGroup;
 			children = (
 				05E10003301A32C300E89E15 /* Extensions */,
+				05E60003301A32C300E89E15 /* Imaging */,
 				05E20001301A32C300E89E15 /* SERBayerPattern.swift */,
 				05E50001301A32C300E89E15 /* SERBilinearDebayering.swift */,
 				05E20002301A32C300E89E15 /* SERColorID.swift */,
@@ -198,7 +207,9 @@
 				05E20005301A32C300E89E15 /* SERColorID.swift */,
 				05E50005301A32C300E89E15 /* SERDebayerFailurePolicy.swift */,
 				05E10006301A32C300E89E15 /* SERError.swift */,
+				05E60004301A32C300E89E15 /* SERFile+CGImage.swift */,
 				05E30003301A32C300E89E15 /* SERFile.swift */,
+				05E60005301A32C300E89E15 /* SERFrame+CGImage.swift */,
 				05E40003301A32C300E89E15 /* SERFrame.swift */,
 				05E40004301A32C300E89E15 /* SERFrames.swift */,
 				05E20006301A32C300E89E15 /* SERHeader.swift */,
@@ -215,6 +226,15 @@
 				05E10004301A32C300E89E15 /* Data.swift */,
 			);
 			path = Extensions;
+			sourceTree = "<group>";
+		};
+		05E60003301A32C300E89E15 /* Imaging */ = {
+			isa = PBXGroup;
+			children = (
+				05E60001301A32C300E89E15 /* SERFile+CGImage.swift */,
+				05E60002301A32C300E89E15 /* SERFrame+CGImage.swift */,
+			);
+			path = Imaging;
 			sourceTree = "<group>";
 		};
 		052BACA5301A32E800E89E15 /* .github */ = {
@@ -463,7 +483,9 @@
 				05E50012301A32C300E89E15 /* SERDebayerFailurePolicy.swift in Sources */,
 				05E50013301A32C300E89E15 /* SERDebayering.swift in Sources */,
 				05E10011301A32C300E89E15 /* SERError.swift in Sources */,
+				05E60011301A32C300E89E15 /* SERFile+CGImage.swift in Sources */,
 				05E30011301A32C300E89E15 /* SERFile.swift in Sources */,
+				05E60012301A32C300E89E15 /* SERFrame+CGImage.swift in Sources */,
 				05E40011301A32C300E89E15 /* SERFrame.swift in Sources */,
 				05E40012301A32C300E89E15 /* SERFrames.swift in Sources */,
 				05E20013301A32C300E89E15 /* SERHeader.swift in Sources */,
@@ -482,7 +504,9 @@
 				05E20015301A32C300E89E15 /* SERColorID.swift in Sources */,
 				05E50015301A32C300E89E15 /* SERDebayerFailurePolicy.swift in Sources */,
 				05E10016301A32C300E89E15 /* SERError.swift in Sources */,
+				05E60013301A32C300E89E15 /* SERFile+CGImage.swift in Sources */,
 				05E30013301A32C300E89E15 /* SERFile.swift in Sources */,
+				05E60014301A32C300E89E15 /* SERFrame+CGImage.swift in Sources */,
 				05E40013301A32C300E89E15 /* SERFrame.swift in Sources */,
 				05E40014301A32C300E89E15 /* SERFrames.swift in Sources */,
 				05E20016301A32C300E89E15 /* SERHeader.swift in Sources */,
