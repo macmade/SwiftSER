@@ -222,11 +222,13 @@ struct Test_SERFile_CGImage
         Array( try #require( image.dataProvider?.data as Data? ) )
     }
 
-    /// The 16-bit components an image's data provider holds, in host order.
+    /// The 16-bit components an image's data provider holds.
     ///
-    /// Read through `loadUnaligned`, as ``SERFrame`` reads a frame's own
-    /// containers and for the same reason: a `Data` gives out no alignment
-    /// guarantee, and binding its bytes to `UInt16` would assume one.
+    /// Decoded little-endian, which is the order the image declares, so the
+    /// result does not depend on the machine the tests run on. Read through
+    /// `loadUnaligned`, as ``SERFrame`` reads a frame's own containers and for
+    /// the same reason: a `Data` gives out no alignment guarantee, and binding
+    /// its bytes to `UInt16` would assume one.
     ///
     /// - Parameter image: The image to read.
     /// - Returns: The pixel components, exactly as the image was given them.
@@ -239,7 +241,7 @@ struct Test_SERFile_CGImage
 
             stride( from: 0, to: bytes.count - ( bytes.count % 2 ), by: 2 ).map
             {
-                bytes.loadUnaligned( fromByteOffset: $0, as: UInt16.self )
+                UInt16( littleEndian: bytes.loadUnaligned( fromByteOffset: $0, as: UInt16.self ) )
             }
         }
     }

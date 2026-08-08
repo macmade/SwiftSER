@@ -203,9 +203,20 @@ internal extension SERFrame
 
     /// The bitmap layout the rendered components are described by.
     ///
+    /// Two-byte components are declared little-endian rather than host-ordered,
+    /// and written that way, so the rendered bytes are the same on any machine.
+    ///
+    /// Not `order16Host`, which is not available on every toolchain: it is
+    /// spelled in the header as an alias of `order16Little`, carrying that same
+    /// raw value under a second name, and Xcode 16.4 rejects
+    /// `CGImageByteOrderInfo.order16Host` outright while accepting
+    /// `order16Little`. `order16Little` has a value of its own, and declaring it
+    /// makes the layout a fixed fact rather than one that varies by machine. For
+    /// a one-byte component there is no byte order to declare at all.
+    ///
     /// - Parameter bytesPerSample: The width of one stored sample, in bytes.
-    /// - Returns: Opaque components, in the host's byte order where that is a
-    ///            question at all — which for a one-byte component it is not.
+    /// - Returns: Opaque components, little-endian where that is a question at
+    ///            all.
     private static func bitmapInfo( bytesPerSample: Int ) -> CGBitmapInfo
     {
         guard bytesPerSample == 2
@@ -214,7 +225,7 @@ internal extension SERFrame
             return CGBitmapInfo( rawValue: CGImageAlphaInfo.none.rawValue )
         }
 
-        return CGBitmapInfo( rawValue: CGImageAlphaInfo.none.rawValue | CGImageByteOrderInfo.order16Host.rawValue )
+        return CGBitmapInfo( rawValue: CGImageAlphaInfo.none.rawValue | CGImageByteOrderInfo.order16Little.rawValue )
     }
 
     /// Converts samples to the components the image is built from.
@@ -269,11 +280,13 @@ internal extension SERFrame
                     return
                 }
 
-                // Words in the host's byte order, which is what
-                // ``bitmapInfo(bytesPerSample:)`` declares.
+                // Words little-endian, which is what
+                // ``bitmapInfo(bytesPerSample:)`` declares. `littleEndian` is
+                // what makes that true on a big-endian host too; everywhere
+                // Apple ships it compiles to nothing.
                 input.indices.forEach
                 {
-                    buffer.storeBytes( of: UInt16( SERFrame.component( of: input[ $0 ], factor: factor, maximum: maximum ) ), toByteOffset: $0 * 2, as: UInt16.self )
+                    buffer.storeBytes( of: UInt16( SERFrame.component( of: input[ $0 ], factor: factor, maximum: maximum ) ).littleEndian, toByteOffset: $0 * 2, as: UInt16.self )
                 }
             }
         }

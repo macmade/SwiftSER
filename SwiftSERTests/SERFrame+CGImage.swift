@@ -208,7 +208,11 @@ struct Test_SERFrame_CGImage
         #expect( image.bitsPerPixel     == 16 )
         #expect( image.bytesPerRow      == 4 )
 
-        // Read back as host-order words, which is what the image declares.
+        // The declared order is little-endian on every machine, not the host's,
+        // so the bytes a rendered image holds are the same everywhere.
+        #expect( image.byteOrderInfo == .order16Little )
+
+        #expect( try Self.componentBytes( of: image ) == [ 0x34, 0x12, 0x78, 0x56 ] )
         #expect( try Self.componentWords( of: image ) == [ 0x1234, 0x5678 ] )
     }
 
@@ -664,11 +668,13 @@ struct Test_SERFrame_CGImage
         Array( try #require( image.dataProvider?.data as Data? ) )
     }
 
-    /// The 16-bit components an image's data provider holds, in host order.
+    /// The 16-bit components an image's data provider holds.
     ///
-    /// Read through `loadUnaligned`, as ``SERFrame`` reads a frame's own
-    /// containers and for the same reason: a `Data` gives out no alignment
-    /// guarantee, and binding its bytes to `UInt16` would assume one.
+    /// Decoded little-endian, which is the order the image declares, so the
+    /// result does not depend on the machine the tests run on. Read through
+    /// `loadUnaligned`, as ``SERFrame`` reads a frame's own containers and for
+    /// the same reason: a `Data` gives out no alignment guarantee, and binding
+    /// its bytes to `UInt16` would assume one.
     ///
     /// - Parameter image: The image to read.
     /// - Returns: The pixel components, exactly as the image was given them.
@@ -681,7 +687,7 @@ struct Test_SERFrame_CGImage
 
             stride( from: 0, to: bytes.count - ( bytes.count % 2 ), by: 2 ).map
             {
-                bytes.loadUnaligned( fromByteOffset: $0, as: UInt16.self )
+                UInt16( littleEndian: bytes.loadUnaligned( fromByteOffset: $0, as: UInt16.self ) )
             }
         }
     }

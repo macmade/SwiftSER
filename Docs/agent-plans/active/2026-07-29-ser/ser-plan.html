@@ -1812,9 +1812,11 @@ The suite grew from 201 to 233 tests.
         24 and 48 bpp layouts. That is what lets three planes be handed over without inventing an alpha channel
         to pad them.</li>
     <li><strong>The output keeps the file's component width</strong> — eight bits for a depth of 1 to 8, sixteen
-        for 9 to 16 — so a 16-bit capture is not quantized on the way out. Sixteen-bit components are written in
-        the host's byte order and the image declares <code>order16Host</code>; the file's own byte order was
-        already resolved by <code>SERFrame/samples</code>, so the image never inherits it.</li>
+        for 9 to 16 — so a 16-bit capture is not quantized on the way out. Sixteen-bit components are written
+        little-endian and the image declares <code>order16Little</code>, so a rendered image holds the same bytes
+        on any machine; the file's own byte order was already resolved by <code>SERFrame/samples</code>, so the
+        image never inherits it. This was first written as the host's order, declared with
+        <code>order16Host</code> — see the CI fix recorded below.</li>
     <li><strong>Scaling maps <code>sampleRange</code> to full scale, and clamps.</strong> This is where Milestone
         4's deferred finding is answered: <code>sampleRange</code> is documented as what a <em>conforming</em>
         file stores rather than a bound on what <code>samples</code> returns, since the padding bits of a
@@ -1897,6 +1899,35 @@ entry points, and the generated <code>.swiftinterface</code> exposes exactly the
 shared renderer correctly <code>internal</code>. The second reviewer checked all 150 identifiers in the project
 file for duplicates and dangling references and found none.
 </p>
+
+<div class="note">
+<strong>The milestone was committed with a build failure no local verification could have caught.</strong>
+Everything above ran against Xcode 26.5 and the macOS 26.5 SDK. CI builds with <strong>Xcode 16.4</strong> and
+the macOS 15.5 SDK, where <code>CGImageByteOrderInfo.order16Host</code> does not exist:
+<code>error: type 'CGImageByteOrderInfo' has no member 'order16Host'</code>. The library target failed to
+compile, so CI never reached the test target and nothing else there was exercised.
+
+<br><br>
+
+The constant is spelled in the header as an alias of <code>order16Little</code>, carrying that same raw value
+under a second name, which is the likely reason a toolchain offers one and not the other — but that mechanism is
+inference. What is established is only that Xcode 16.4 rejects <code>order16Host</code> and accepts
+<code>order16Little</code>. The fix therefore does not swap one spelling for another: the host-order dependence
+is gone altogether. Components are written little-endian through <code>UInt16/littleEndian</code>, which compiles
+to nothing on every platform Apple ships, and the image declares <code>order16Little</code> — a member with a
+value of its own. A rendered image now holds the same bytes on any machine, which also makes the test helpers'
+<code>componentWords</code> unambiguous: they decode little-endian rather than host order, and a new assertion
+pins the declared order.
+
+<br><br>
+
+<strong>What this does not prove.</strong> No Xcode 16.x is installed here, so the fix cannot be compiled against
+the SDK that rejected the original — only CI can confirm it. The lesson that generalizes is that verifying a
+platform symbol against the local SDK establishes nothing about the one CI uses, and that an availability
+annotation is not the only way a symbol can be absent: this one is annotated
+<code>API_AVAILABLE(macos(10.0))</code>. Every other Core Graphics and ImageIO symbol this milestone uses was
+re-checked against its annotation and dates from macOS 10.0 to 10.14, well under the deployment target.
+</div>
 
 <p>
 Across the two rounds the conversion was fuzzed over 4 000 random files spanning all eleven color IDs, depths 1
