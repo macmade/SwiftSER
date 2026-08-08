@@ -543,7 +543,7 @@ fixtures only.
 
     <li class="phase">Phase 3 — Output</li>
     <li><a href="#m6">Milestone 6 — CGImage export</a> <span class="status status-completed">Completed</span></li>
-    <li><a href="#m7">Milestone 7 — Movie export</a> <span class="status status-notstarted">Not started</span></li>
+    <li><a href="#m7">Milestone 7 — Movie export</a> <span class="status status-completed">Completed</span></li>
 
     <li class="phase">Phase 4 — Validation and documentation</li>
     <li><a href="#m8">Milestone 8 — Integration tests and real-file validation</a> <span class="status status-notstarted">Not started</span></li>
@@ -1909,11 +1909,15 @@ compile, so CI never reached the test target and nothing else there was exercise
 
 <br><br>
 
-The constant is spelled in the header as an alias of <code>order16Little</code>, carrying that same raw value
-under a second name, which is the likely reason a toolchain offers one and not the other — but that mechanism is
-inference. What is established is only that Xcode 16.4 rejects <code>order16Host</code> and accepts
-<code>order16Little</code>. The fix therefore does not swap one spelling for another: the host-order dependence
-is gone altogether. Components are written little-endian through <code>UInt16/littleEndian</code>, which compiles
+The reason was first recorded here as an inference — that the constant is an alias of
+<code>order16Little</code> and that an older importer drops such aliases. That was wrong, and it was settled
+afterwards by reading both headers: <code>MacOSX15.4.sdk</code>'s <code>CGImage.h</code> contains
+<strong>no occurrence at all</strong> of <code>kCGImageByteOrder16Host</code>, while the 26.5 SDK's contains
+three. Apple added the member to <code>CGImageByteOrderInfo</code> in a later SDK; nothing was dropped by any
+importer. The older <code>kCGBitmapByteOrder16Host</code>, a separate constant of a different type, is in both —
+which is why the obvious substitution would have compiled, and why it was avoided anyway: it is soft-deprecated
+in the newer SDK, and this target treats warnings as errors. The fix therefore does not swap one spelling for
+another: the host-order dependence is gone altogether. Components are written little-endian through <code>UInt16/littleEndian</code>, which compiles
 to nothing on every platform Apple ships, and the image declares <code>order16Little</code> — a member with a
 value of its own. A rendered image now holds the same bytes on any machine, which also makes the test helpers'
 <code>componentWords</code> unambiguous: they decode little-endian rather than host order, and a new assertion
@@ -1921,12 +1925,13 @@ pins the declared order.
 
 <br><br>
 
-<strong>What this does not prove.</strong> No Xcode 16.x is installed here, so the fix cannot be compiled against
-the SDK that rejected the original — only CI can confirm it. The lesson that generalizes is that verifying a
-platform symbol against the local SDK establishes nothing about the one CI uses, and that an availability
-annotation is not the only way a symbol can be absent: this one is annotated
-<code>API_AVAILABLE(macos(10.0))</code>. Every other Core Graphics and ImageIO symbol this milestone uses was
-re-checked against its annotation and dates from macOS 10.0 to 10.14, well under the deployment target.
+<strong>The lesson.</strong> Verifying a platform symbol against the local SDK establishes nothing about the one
+CI uses, and an availability annotation is not the only way a symbol can be absent — this one is annotated
+<code>API_AVAILABLE(macos(10.0))</code>, which says which systems it runs on, not which SDKs contain it. Every
+other Core Graphics and ImageIO symbol this milestone uses was re-checked and dates from macOS 10.0 to 10.14.
+Milestone 7 found the practical answer: <code>MacOSX15.4.sdk</code> is installed with the Command Line Tools and
+the library can be typechecked against it directly, which is how that milestone closed the same risk before
+committing.
 </div>
 
 <p>
@@ -2044,7 +2049,7 @@ rose by exactly the number of tests added.
 </div>
 
 <div class="milestone" id="m7">
-<h3>Milestone 7 — Movie export <span class="status status-notstarted">Not started</span></h3>
+<h3>Milestone 7 — Movie export <span class="status status-completed">Completed</span></h3>
 
 <div class="field">
 <div class="label">Goal</div>
@@ -2070,11 +2075,285 @@ larger than available memory still exports.
 </ul>
 </div>
 
-<div class="field"><div class="label">Status</div><p><span class="status status-notstarted">Not started</span></p></div>
-<div class="field"><div class="label">Completed</div><p class="placeholder">—</p></div>
-<div class="field"><div class="label">Implementation notes</div><p class="placeholder">To be filled in during implementation.</p></div>
-<div class="field"><div class="label">Automated review</div><p class="placeholder">To be filled in by the automated review loop.</p></div>
-<div class="field"><div class="label">Review comments</div><p class="placeholder">To be filled in during human review.</p></div>
+<div class="field"><div class="label">Status</div><p><span class="status status-completed">Completed</span></p></div>
+<div class="field"><div class="label">Completed</div><p>2026-08-08</p></div>
+<div class="field">
+<div class="label">Implementation notes</div>
+
+<p>
+Implemented test-first, after a throwaway spike established what AVFoundation actually does — three of its
+answers changed the design before a line of the implementation was written. The suite grew from 233 to 270
+tests.
+</p>
+
+<p><strong>Files created</strong></p>
+
+<ul>
+    <li><code>SwiftSER/Video/SERMovieCodec.swift</code> — H.264, HEVC, ProRes 422 and ProRes 4444, each naming
+        its <code>AVVideoCodecType</code> and whether it preserves an odd frame dimension.</li>
+    <li><code>SwiftSER/Video/SERMovieFrameRate.swift</code> — <code>constant</code> or
+        <code>fromTimestamps(fallback:)</code>.</li>
+    <li><code>SwiftSER/Video/SERMovieExportOptions.swift</code> — codec, frame rate and scaling.</li>
+    <li><code>SwiftSER/Video/SERMovieWriter.swift</code> — <code>write(file:to:progress:)</code>.</li>
+    <li>A test file for each, and <code>SwiftSERTests/TestUtilities.swift</code> gained a destination helper, an
+        asynchronous table walker, and the first tests it has ever carried of its own.</li>
+</ul>
+
+<p><strong>Decisions taken by the user rather than the implementation</strong></p>
+
+<ul>
+    <li><strong>The API is <code>async throws</code></strong>, with progress through a callback and cancellation
+        through the task. Chosen over a synchronous call with callbacks, which would have sidestepped every
+        <code>Sendable</code> question but blocked the caller's thread for the length of an export.</li>
+    <li><strong><code>Package.swift</code> declares <code>.macOS( .v15 )</code></strong>, matching the Xcode
+        project exactly, as this milestone's task asks. The floor is not AVFoundation's — the writer API is
+        macOS 10.7 — but the package's, and every consumer inherits it, including one using only the
+        Foundation-only parser.</li>
+</ul>
+
+<p><strong>Decisions</strong></p>
+
+<ul>
+    <li><strong>Back-pressure is awaited by polling, because the sanctioned callback cannot be used.</strong>
+        <code>requestMediaDataWhenReady(on:using:)</code> takes a block AVFoundation marks
+        <code>NS_SWIFT_SENDABLE</code>, and the block would have to reach the file to read the next frame —
+        which <code>SERFile</code>, deliberately not <code>Sendable</code>, cannot be sent into. There is no
+        way to stop the callback once started either, so a one-shot continuation over it would risk resuming
+        twice. The loop instead reads <code>isReadyForMoreMediaData</code>, the same signal, and awaits
+        <code>Task.sleep</code> between looks — which suspends rather than blocking, and is a cancellation
+        point. Both reviewers confirmed the loop is load-bearing: removing it aborts the process outright,
+        since appending to an input that is not ready raises an uncatchable exception.</li>
+    <li><strong>Each frame goes out through <code>SERFile/cgImage(ofFrame:scaled:)</code></strong>, so a mosaic
+        is debayered by whatever implementation the file names and nothing about the pixel path is written
+        twice. That is what Milestone 6's "one call to make whatever the file is" was for.</li>
+    <li><strong>The frame rate is one constant for the whole movie</strong>, even when taken from the trailer.
+        SER frames are stamped as captured and are rarely evenly spaced; giving each frame the instant it
+        carries would produce a movie that plays in fits and starts. The rate is measured across frame
+        <em>positions</em> from the first stamped frame to the last, so a trailer with holes in it still
+        reports the pace the capture ran at rather than a fraction of it.</li>
+    <li><strong>An occupied destination is refused, not overwritten</strong>, and every failure and
+        cancellation clears the destination — see the two findings below, which is where that came from.</li>
+    <li><strong>Four files rather than the one the task lists.</strong> One type per file, and the destination
+        is a parameter of <code>write</code> rather than a member of the options, since it is where the movie
+        goes rather than a setting describing it. The task text lists the output URL among the options; this is
+        the divergence.</li>
+</ul>
+
+<div class="note">
+<strong>The frame-rate ceiling was established twice, and the first answer was wrong.</strong> Round 1 found
+that rates above about 600 frames a second corrupted or failed the export. The first fix raised the timescale
+to follow the rate, which appeared to work — 700 frames a second kept all six frames — but the durations were
+still coming back in 600ths. Rather than accept that, the behavior was reproduced standalone, outside the
+library, and read as: a QuickTime asset reports its duration in 600ths whatever the track says, and six frames
+at a thousand a second come back as five. The conclusion drawn was that high rates are not expressible at all,
+and the writer was made to reject anything above 600.
+
+<br><br>
+
+Round 2 contradicted that, and was right. Re-measured properly: <strong>1200 frames at 1000 frames a second,
+with a matching timescale, round-trip exactly</strong> — as do 600 frames at 6000. The lost frame in the
+original measurement had nothing to do with the rate; it was that <em>six</em> frames at a thousand a second
+is a movie six milliseconds long, and a movie only a few milliseconds long is not read back reliably at any
+rate. Generalizing from a six-frame test was the mistake.
+
+<br><br>
+
+So the ceiling is not a property of QuickTime but of the timescale chosen, and 600 was the wrong choice for a
+high-speed format: a planetary capture at 1000 frames a second is ordinary. The timescale is now
+<strong>30000</strong>, which divides every rate that matters exactly — 24, 25, 30, 48, 50, 60, 120 and 240 as
+well as 1000 and 6000 — and the guard sits at 30000 frames a second, where the format really stops. Beyond it
+the export does not degrade quietly: <code>AVAssetWriter</code> refuses the frame whose time collides with its
+predecessor and the whole export fails, measured at 700 against a 600 scale. A trailer implying a faster
+capture still falls back rather than failing, so no real file is refused an export.
+</div>
+
+<div class="note">
+<strong>What the spike settled before any code was written.</strong> H.264 and HEVC encode in macroblocks and
+round an odd frame dimension <em>down</em> — a 1281×961 capture comes back 1280×960 — while both ProRes codecs
+carry it through untouched. An unwritable destination surfaces as <code>startWriting()</code> returning false
+with the writer's own error rather than as a throw, which is where the <code>movieExportFailed</code> reason
+comes from. And ending the session one frame past the last is what makes the duration exact.
+
+<br><br>
+
+Rounding down also takes a dimension of <em>1</em> to nothing, which round 2 found produces the worst possible
+outcome: the export reports success and writes a movie no reader will open. That geometry is now refused up
+front for the two macroblock codecs, which is a two-line use of the flag the codec type already carried.
+</div>
+
+<p><strong>Verification</strong></p>
+
+<p>
+<code>swift test</code> Debug and Release — 270 tests, all pass; <code>xcodebuild</code> Debug —
+<code>BUILD SUCCEEDED</code> / <code>TEST SUCCEEDED</code>, 270 cases; <code>xcodebuild</code> Release —
+<code>BUILD SUCCEEDED</code> / <code>ANALYZE SUCCEEDED</code>; <code>xcodebuild docbuild</code> — clean, every
+symbol link resolving.
+</p>
+
+<div class="note">
+<strong>The Milestone 6 CI failure is not repeatable here.</strong> That milestone was committed green and
+broke on CI, because everything had been checked against the local SDK while CI builds against an older one.
+This time the whole library was typechecked against <code>MacOSX15.4.sdk</code> — one minor version below
+CI's — at <code>-swift-version 6</code> with warnings as errors, and it is clean. The check has teeth: that SDK
+genuinely lacks <code>kCGImageByteOrder16Host</code>, the symbol that broke Milestone 6, and a negative control
+using it against the same SDK fails as expected. Every AVFoundation, CoreVideo and CoreMedia symbol the writer
+uses dates from macOS 10.7 to 10.13; <code>Duration</code> and <code>Task.sleep(for:)</code> are macOS 13.
+
+<br><br>
+
+<strong>What is still unverified, and why.</strong> This was first recorded as "swift-testing does not ship in
+that SDK", which is wrong: <code>Testing.framework</code> lives in the <em>platform</em> directory, not the SDK,
+and the compiler can be pointed at it. Attempting it gives a different answer — the 26.5
+<code>Testing.swiftinterface</code> refers to <code>Swift.SendableMetatype</code>, a standard-library type the
+older SDK has no version of, so the mixed pairing does not build. Nor would it mean anything if it did: Xcode
+16.4 ships its own swift-testing built against its own standard library. Checking the <em>test</em> target
+against CI therefore needs that toolchain, not merely its SDK — the old-SDK check works for the library
+precisely because the library imports only system frameworks. <code>@Suite( .serialized )</code> and the
+asynchronous <code>#expect(throws:)</code> consequently rest on their Swift 6.0 introduction rather than on a
+compile. The exposure is small: CI's Debug job builds and runs the test target, so a mistake there turns CI red
+rather than shipping.
+</div>
+
+<div class="note">
+<strong>The test suite deadlocked, and the cause was the tests rather than the library.</strong> Adding the
+movie tests wedged the whole run — 37 tests stalled, including parsing tests with no connection to movies.
+Sampling the stopped process rather than guessing showed ten threads blocked inside
+<code>copyNextSampleBuffer</code>: run in parallel, the movie tests open more concurrent codec sessions than
+the platform allows, and the ones that cannot get a session never come back. The suite is now
+<code>@Suite( .serialized )</code>. Round 2 reproduced the deadlock three times out of three with the trait
+removed, confirmed the diagnosis from its own sample, and confirmed it masks nothing in the library — 32
+concurrent exports complete cleanly. <strong>Milestone 8's integration tests will have to join the same
+serialization</strong>, or the deadlock returns.
+</div>
+
+<p>
+Round 2 also measured what the milestone set out to guarantee: exporting 6000 frames from a memory-mapped file
+held a flat footprint from start to finish, so "only one frame is ever materialized" holds; nothing is left at
+the destination on any reachable failure or cancellation path; frames come out the right way up, with a
+deliberate vertical flip and all four bitmap-layout variants killed by test; and the <code>Sendable</code>
+story is sound — a <code>SERFile</code> cannot cross an isolation boundary, and the compiler enforces it.
+</p>
+</div>
+<div class="field">
+<div class="label">Automated review</div>
+
+<p>
+Two rounds, each by a fresh sub-agent with no prior context, both using mutation testing and standalone
+AVFoundation probes rather than inspection. Round 1 raised six <em>Medium</em> findings, all fixed; round 2 —
+told to take none of those fixes on trust and to re-derive the premises behind them — raised four more, three
+of them <em>Medium</em>, including one showing that a fix from round 1 rested on a false premise. All are
+fixed, and every fix is pinned by a test whose mutation was re-run.
+</p>
+
+<p><strong>Round 1 — six Medium findings, all fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — a failed export left a partial movie at the destination.</strong>
+        <code>cancelWriting()</code> is documented as a no-op once the writer has failed, and a writer that
+        failed mid-export has already written bytes; the debris then poisoned a retry, since an occupied
+        destination is refused. <em>Fixed</em>: the destination is cleared as well as the writer cancelled.</li>
+    <li><strong>Medium — frame rates above the timescale corrupted or failed the export.</strong>
+        <em>Fixed</em>, twice — see the note above.</li>
+    <li><strong>Medium — a very small frame rate trapped the process</strong> on an unchecked
+        <code>Double</code> to <code>Int64</code> conversion, which is the class of defect this project's
+        conventions forbid outright. <em>Fixed</em>: the tick value is range-checked and reported.</li>
+    <li><strong>Medium — the progress closure could not be passed from any actor-isolated caller.</strong> Not
+        even the example in the writer's own documentation compiled from a <code>@MainActor</code> context, and
+        it failed even for a closure capturing nothing. <em>Fixed</em>: the parameter is
+        <code>@Sendable</code>.</li>
+    <li><strong>Medium — the cancellation test did not pin the cancellation check.</strong> Deleting
+        <code>Task.checkCancellation()</code> left it green: the export ran on and the readiness wait threw
+        instead, three frames later. <em>Fixed</em>: the test asserts that no frame was reported at all.</li>
+    <li><strong>Medium — the failure tests asserted only <code>SERError</code>.</strong> Three unrelated cases
+        could be substituted and all four still passed, against a milestone that requires failures to surface
+        as <code>movieExportFailed</code> carrying AVFoundation's reason. <em>Fixed</em>: they assert the case
+        and a distinguishing fragment of the reason. The same finding Milestone 6 fixed.</li>
+    <li><strong>Low/Info</strong> — the cleanup guarantee was unpinned (<em>fixed</em>); <code>scaled</code> had
+        no behavioral test at all (<em>fixed</em>); the codec table was not checked against
+        <code>allCases</code> (<em>fixed</em>); <code>preservesOddDimensions</code> had no caller
+        (<em>fixed</em> — it is now public, and the geometry guard uses it); the frame-rate documentation said
+        "frames" where the code meant stamped frames (<em>fixed</em>); the
+        <code>expectsMediaDataInRealTime</code> comment described the flag as preventing dropped frames, which
+        is not what it does (<em>fixed</em>); a <code>Sequence</code> extension living in a test file
+        (<em>fixed</em> — moved to <code>TestUtilities</code>); temporary directories left behind
+        (<em>deferred</em>).</li>
+</ul>
+
+<p><strong>Round 2 — three Medium findings, all fixed</strong></p>
+
+<ul>
+    <li><strong>Medium — the 600 frames-a-second ceiling rested on a premise that was factually wrong.</strong>
+        The reviewer measured 1200 frames at 1000 a second round-tripping exactly, and 601 working, against
+        documentation claiming neither was possible. <em>Fixed</em> by re-measuring independently, agreeing,
+        and raising the timescale to 30000 — see the note above. The reviewer was also right that rejecting is
+        better than clamping, since clamping would silently change what the caller asked for.</li>
+    <li><strong>Medium — a capture one pixel wide exported through H.264 or HEVC reported success and wrote an
+        unopenable movie.</strong> The macroblock rounding the codec type already documented takes a dimension
+        of 1 down to nothing. <em>Fixed</em>: refused up front, and pinned — the first attempt at the guard was
+        itself unpinned, which a mutation caught.</li>
+    <li><strong>Medium — nothing pinned that each movie frame carries its own SER frame.</strong> Exporting
+        frame 0 for every frame left the entire suite green: the tests checked dimensions, counts, durations,
+        orientation and brightness, never per-frame content in sequence — the milestone's central behavior.
+        <em>Fixed</em> with a test that exports well-separated frames through ProRes 4444 and asserts each one
+        in order.</li>
+    <li><strong>Medium — the asynchronous table walker silently defeated the anti-vacuity guards.</strong>
+        Making it skip its last element left all 265 tests passing, so the ProRes 4444 rows and two failure
+        cases could be dropped from every run unnoticed. The helper sat <em>underneath</em> the
+        <code>every…TableIsListed</code> guards. <em>Fixed</em>: it now has tests of its own, which is why
+        <code>TestUtilities</code> carries tests for the first time.</li>
+    <li><strong>Low/Info</strong> — the export never suspended when the encoder kept up, holding a cooperative
+        thread for the length of a long export (<em>fixed</em> with a per-frame <code>Task.yield()</code>); a
+        trailer with holes derived a rate too slow by the proportion of missing stamps (<em>fixed</em> by
+        measuring across frame positions); the test task handle was an unsynchronised <code>var</code> read
+        from two threads (<em>fixed</em> with the lock its sibling already used); the read-back helpers never
+        released their decode sessions (<em>fixed</em>); the one default argument in the repository, in a test
+        helper (<em>fixed</em>); ProRes 4444 described as highest quality without noting that every codec
+        receives 8-bit pixels (<em>fixed</em>); the cancellation guarantee's tail case, where a cancellation
+        arriving during <code>finishWriting</code> is not observed (<em>fixed</em> by documenting it); an
+        actor-isolated caller being unable to pass a stored file (<em>fixed</em> by documenting it, the
+        behavior itself being correct); two doc alignment slips (<em>fixed</em>); temporary movies left on disk
+        (<em>deferred</em>); the failed-writer branch of the cleanup being unreachable from a test
+        (<em>accepted knowingly</em> — no portable way to force that state was found).</li>
+    <li><strong>Explicitly cleared by round 2</strong>: cleanup on every reachable path; the odd-dimension
+        behavior including the documentation's own 1281×961 example; frame orientation; the back-pressure loop
+        being real, non-spinning, cancellable and unable to hang; flat memory across a 6000-frame export; the
+        overflow guard being load-bearing; the <code>Sendable</code> conformances; both build systems in sync;
+        and the reason the suite is serialized.</li>
+</ul>
+</div>
+<div class="field">
+<div class="label">Review comments</div>
+
+<ul>
+    <li>Rejected the claim that swift-testing does not ship in the older SDK as plainly wrong.
+        <br><br>
+        <em>Correct.</em> <code>Testing.framework</code> is in the platform directory, not the SDK, so the SDK's
+        contents have no bearing on it. Attempting the compile gave the real obstacle — a standard-library type
+        the older SDK lacks — and showed that the check would not have been meaningful anyway. Recorded above,
+        replacing the wrong reason.</li>
+
+    <li>Told to stop stating things about Swift versions and SDKs that had not been verified.
+        <br><br>
+        <em>Accepted.</em> Two claims in these notes were inference presented as fact: the reason
+        <code>order16Host</code> was missing, and the swift-testing one above. Both are now replaced by what was
+        actually read from the headers, in Milestone 6's notes as well as this one.</li>
+
+    <li>Asked for the version to be taken out of <code>Package.swift</code>, then — after it was misread twice —
+        stated that the deployment target is macOS 15.
+        <br><br>
+        <em>Addressed.</em> <code>Package.swift</code> declares <code>.macOS( .v15 )</code>, matching
+        <code>MACOSX_DEPLOYMENT_TARGET = 15.0</code> in the Xcode project, which is the one place the target is
+        decided. Removing the declaration outright was tried and does not work: SPM then builds at macOS 10.13
+        and Swift concurrency needs 10.15, so the <code>async</code> API would have required an
+        <code>@available</code> annotation instead — trading one declaration for another. No annotation is
+        present, and an interim change from <code>Duration</code> to raw nanoseconds, which only existed to get
+        under macOS 13, was reverted with it.</li>
+
+    <li>Approved as implemented. The deferred items were surfaced at the pause — temporary movie directories
+        left behind by a test run, and the failed-writer branch of the cleanup being unreachable from a test —
+        and were accepted as they stand.</li>
+</ul>
+</div>
 </div>
 
 <h3 class="phase-heading">Phase 4 — Validation and documentation</h3>

@@ -28,6 +28,9 @@ import PackageDescription
 
 let package = Package(
     name: "SwiftSER",
+    platforms: [
+        .macOS( .v15 ),
+    ],
     products: [
         .library( name: "SwiftSER", targets: [ "SwiftSER" ] ),
     ],

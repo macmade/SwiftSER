@@ -301,6 +301,23 @@ class TestUtilities
         }
     }
 
+    /// A URL in a fresh temporary directory, with nothing written to it.
+    ///
+    /// For the cases that need a destination that does not yet exist, which
+    /// writing to it would defeat.
+    ///
+    /// - Parameter name: The file name to use.
+    /// - Returns: The URL, whose parent directory exists and is empty.
+    /// - Throws: Any error raised while creating the directory.
+    static func temporaryURL( named name: String ) throws -> URL
+    {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent( UUID().uuidString )
+
+        try FileManager.default.createDirectory( at: directory, withIntermediateDirectories: true )
+
+        return directory.appendingPathComponent( name )
+    }
+
     /// Writes data to a uniquely named file in the temporary directory.
     ///
     /// - Parameters:
@@ -310,14 +327,87 @@ class TestUtilities
     /// - Throws: Any error raised while writing.
     static func temporaryFile( containing data: Data, named name: String ) throws -> URL
     {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent( UUID().uuidString )
-
-        try FileManager.default.createDirectory( at: directory, withIntermediateDirectories: true )
-
-        let url = directory.appendingPathComponent( name )
+        let url = try TestUtilities.temporaryURL( named: name )
 
         try data.write( to: url )
 
         return url
+    }
+
+    /// Runs an asynchronous body over every element of a sequence, in order.
+    ///
+    /// `forEach` takes a closure that neither throws nor suspends, so a
+    /// table-driven test whose body awaits cannot use it.
+    ///
+    /// - Parameters:
+    ///   - elements: What to iterate.
+    ///   - body:     What to run for each element.
+    /// - Throws: Whatever `body` throws, which stops the iteration.
+    static func asyncForEach< T >( _ elements: some Sequence< T >, _ body: ( T ) async throws -> Void ) async rethrows
+    {
+        for element in elements
+        {
+            try await body( element )
+        }
+    }
+}
+
+/// Tests for the helpers above.
+///
+/// The one place a test file carries tests of its own, because
+/// ``TestUtilities/asyncForEach(_:_:)`` sits *underneath* the
+/// `every…TableIsListed` guards: a table-driven test drives its rows through it,
+/// so a helper that quietly skipped one would leave those guards green while the
+/// rows went unrun. It is the guard's guard, and it needs one.
+struct Test_TestUtilities
+{
+    @Test
+    func asyncForEachVisitsEveryElementInOrder() async throws
+    {
+        var visited: [ Int ] = []
+
+        await TestUtilities.asyncForEach( [ 1, 2, 3, 4, 5 ] )
+        {
+            visited.append( $0 )
+        }
+
+        #expect( visited == [ 1, 2, 3, 4, 5 ] )
+    }
+
+    @Test
+    func asyncForEachVisitsNothingOfAnEmptySequence() async throws
+    {
+        var visited = 0
+
+        await TestUtilities.asyncForEach( [ Int ]() )
+        {
+            _ in visited += 1
+        }
+
+        #expect( visited == 0 )
+    }
+
+    @Test
+    func asyncForEachStopsAtTheFirstFailure() async throws
+    {
+        struct Stop: Error
+        {}
+
+        var visited: [ Int ] = []
+
+        await #expect( throws: Stop.self )
+        {
+            try await TestUtilities.asyncForEach( [ 1, 2, 3 ] )
+            {
+                visited.append( $0 )
+
+                if $0 == 2
+                {
+                    throw Stop()
+                }
+            }
+        }
+
+        #expect( visited == [ 1, 2 ] )
     }
 }
